@@ -20,11 +20,11 @@ android {
         }
     }
 
-    def keystorePath = System.getenv('RAQEEB_KEYSTORE_PATH')
-    def keystorePassword = System.getenv('RAQEEB_KEYSTORE_PASSWORD')
-    def keyAlias = System.getenv('RAQEEB_KEY_ALIAS')
-    def keyPassword = System.getenv('RAQEEB_KEY_PASSWORD')
-    def hasReleaseSigning = [keystorePath, keystorePassword, keyAlias, keyPassword]
+    def releaseKeystorePath = System.getenv('RAQEEB_KEYSTORE_PATH')
+    def releaseKeystorePassword = System.getenv('RAQEEB_KEYSTORE_PASSWORD')
+    def releaseKeyAlias = System.getenv('RAQEEB_KEY_ALIAS')
+    def releaseKeyPassword = System.getenv('RAQEEB_KEY_PASSWORD')
+    def hasReleaseSigning = [releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword]
         .every { value -> value != null && !value.trim().isEmpty() }
     def isCi = (System.getenv('CI') ?: '').toBoolean()
 
@@ -38,10 +38,10 @@ android {
     signingConfigs {
         release {
             if (hasReleaseSigning) {
-                storeFile file(keystorePath)
-                storePassword keystorePassword
-                keyAlias keyAlias
-                keyPassword keyPassword
+                storeFile file(releaseKeystorePath)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
             }
         }
     }
