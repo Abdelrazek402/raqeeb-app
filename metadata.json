@@ -1,0 +1,6 @@
+{
+  "name": "رقيب | الرفيق الرقمي الواعي",
+  "description": "تطبيق مراقبة النية، التذكير بالصلوات والذكر، حجب المحتوى غير اللائق، وإدارة تصفح السوشيال ميديا والمتصفح لنظامي ويندوز وأندرويد",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

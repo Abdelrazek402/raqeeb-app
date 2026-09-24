@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "User": {
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "email"]
+    },
+    "DailyStat": {
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "istighfarCount": { "type": "number" },
+        "totalScreenTime": { "type": "number" },
+        "androidTime": { "type": "number" },
+        "winTime": { "type": "number" }
+      },
+      "required": ["userId", "date"]
+    },
+    "BlockedLog": {
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "url": { "type": "string" },
+        "reason": { "type": "string" },
+        "appName": { "type": "string" },
+        "timestamp": { "type": "timestamp" }
+      },
+      "required": ["userId", "url", "timestamp"]
+    },
+    "PairingSession": {
+      "type": "object",
+      "properties": {
+        "pairingCode": { "type": "string" },
+        "token": { "type": "string" },
+        "windowsStatus": { "type": "string" },
+        "androidStatus": { "type": "string" },
+        "phoneLink": { "type": "object" },
+        "devices": { "type": "object" },
+        "sharedStats": { "type": "object" },
+        "athkarSettings": { "type": "object" },
+        "lastSyncTime": { "type": "string" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["pairingCode"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" }
+    },
+    "/dailyStats/{statId}": {
+      "schema": { "$ref": "#/entities/DailyStat" }
+    },
+    "/blockedLogs/{logId}": {
+      "schema": { "$ref": "#/entities/BlockedLog" }
+    },
+    "/pairingSessions/{pairingCode}": {
+      "schema": { "$ref": "#/entities/PairingSession" }
+    }
+  }
+}
