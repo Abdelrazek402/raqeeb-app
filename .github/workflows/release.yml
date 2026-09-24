@@ -35,11 +35,16 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: temurin
+          distribution: 'temurin'
           cache: gradle
-      - run: chmod +x android/gradlew
-      - run: android/gradlew -p android assembleRelease
-      - run: test -s android/app/build/outputs/apk/release/app-release.apk
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+        working-directory: ./android
+      - name: Build Android release
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        working-directory: ./android
+      - run: test -s app/build/outputs/apk/release/app-release.apk
+        working-directory: ./android
       - run: mkdir -p public/downloads && cp android/app/build/outputs/apk/release/app-release.apk public/downloads/Raqeeb.apk
       - uses: actions/upload-artifact@v4
         with:
