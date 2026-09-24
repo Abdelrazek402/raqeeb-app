@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Raqeeb - الرَّفِيق الرَّقْمِي الواعي",
+  "version": "1.0.0",
+  "description": "حماية واعية من المحتوى الصريح مع تذكيرات قصيرة للتركيز والذكر.",
+  "permissions": ["declarativeNetRequest", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle"}],
+  "declarative_net_request": {
+    "rule_resources": [{"id": "raqeeb_block_rules", "enabled": true, "path": "rules.json"}]
+  },
+  "action": {"default_popup": "popup.html"}
+}

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">رَقِيب | Raqeeb</string>
+    <string name="accessibility_service_label">خدمة رَقِيب للحماية والتركيز</string>
+    <string name="accessibility_service_description">تُستخدم هذه الخدمة لرصد فتح التطبيقات المشتتة أو غير اللائقة وحجبها فوراً مع عرض رسائل التذكير والاستغفار.</string>
+</resources>

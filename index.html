@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <script>
+      // Silence benign [vite] websocket connection notices and unhandled rejections in sandboxed preview
+      (function() {
+        function isViteMsg(arg) {
+          if (!arg) return false;
+          var str = typeof arg === 'string' ? arg : (arg.message || String(arg));
+          return str.indexOf('[vite]') !== -1 || 
+                 str.indexOf('WebSocket') !== -1 || 
+                 str.indexOf('websocket') !== -1 || 
+                 str.indexOf('failed to connect to websocket') !== -1 ||
+                 str.indexOf('failed to connect') !== -1;
+        }
+        var _err = console.error;
+        console.error = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isViteMsg(arguments[i])) {
+              return;
+            }
+          }
+          _err.apply(console, arguments);
+        };
+        var _warn = console.warn;
+        console.warn = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isViteMsg(arguments[i])) {
+              return;
+            }
+          }
+          _warn.apply(console, arguments);
+        };
+        var _log = console.log;
+        console.log = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isViteMsg(arguments[i])) {
+              return;
+            }
+          }
+          _log.apply(console, arguments);
+        };
+        var _debug = console.debug;
+        console.debug = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isViteMsg(arguments[i])) {
+              return;
+            }
+          }
+          if (_debug) _debug.apply(console, arguments);
+        };
+        window.addEventListener('unhandledrejection', function(e) {
+          if (e && e.reason && isViteMsg(e.reason)) {
+            e.preventDefault();
+          }
+        });
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="رَقِيب" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>رقيب | الرفيق الرقمي الواعي</title>
+    <meta name="description" content="تطبيق مراقبة النية، التذكير بالصلوات والذكر، حجب المحتوى غير اللائق، وإدارة تصفح السوشيال ميديا والمتصفح لنظامي ويندوز وأندرويد" />
+    <meta property="og:title" content="رقيب | الرفيق الرقمي الواعي" />
+    <meta property="og:description" content="تطبيق مراقبة النية، التذكير بالصلوات والذكر، حجب المحتوى غير اللائق، وإدارة تصفح السوشيال ميديا والمتصفح لنظامي ويندوز وأندرويد" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0d9488" />
+    <link rel="icon" type="image/png" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Amiri:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-800 antialiased font-['Cairo',sans-serif] selection:bg-teal-500 selection:text-white">
+    <div id="root"></div>
+
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').then(function(reg) {
+            console.log('SW registered:', reg.scope);
+          }).catch(function(err) {
+            console.warn('SW registration failed:', err);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>رَقِيب</title>
+  <style>
+    body{width:280px;margin:0;padding:16px;background:#0f172a;color:#f8fafc;font:14px system-ui}
+    h1{font-size:20px;color:#5eead4;margin:0 0 12px}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:12px;margin:8px 0}
+    label{display:flex;gap:8px;align-items:center}
+    .value{font-size:22px;color:#5eead4;font-weight:700}
+    button{width:100%;padding:10px;border:0;border-radius:8px;background:#0d9488;color:white;cursor:pointer}
+    small{color:#cbd5e1}
+  </style>
+</head>
+<body>
+  <h1>رَقِيب | الحماية الواعية</h1>
+  <div class="card">
+    <label><input id="protection-toggle" type="checkbox"> تفعيل الحجب والتصفح الآمن</label>
+    <small>الحالة: <strong id="status-text">نشط</strong></small>
+  </div>
+  <div class="card"><div class="value" id="blocked-count">529</div><small>نطاقًا محجوبًا</small></div>
+  <div class="card"><div class="value" id="prayer-countdown">--:--</div><small>العد التنازلي للساعة القادمة</small></div>
+  <button id="open-app-btn">فتح لوحة رَقِيب</button>
+  <script src="popup.js"></script>
+</body>
+</html>
