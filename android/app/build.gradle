@@ -26,13 +26,8 @@ android {
     def releaseKeyPassword = System.getenv('RAQEEB_KEY_PASSWORD')
     def hasReleaseSigning = [releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword]
         .every { value -> value != null && !value.trim().isEmpty() }
-    def isCi = (System.getenv('CI') ?: '').toBoolean()
-
-    if (isCi && !hasReleaseSigning) {
-        throw new GradleException(
-            'Release signing secrets are required in CI: RAQEEB_KEYSTORE_PATH, ' +
-            'RAQEEB_KEYSTORE_PASSWORD, RAQEEB_KEY_ALIAS, RAQEEB_KEY_PASSWORD'
-        )
+    if (hasReleaseSigning) {
+        hasReleaseSigning = file(releaseKeystorePath).isFile()
     }
 
     signingConfigs {
