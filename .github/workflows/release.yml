@@ -40,9 +40,26 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
         working-directory: ./android
+      # Required repository secrets:
+      # ANDROID_KEYSTORE_BASE64: Base64-encoded release keystore file.
+      # ANDROID_KEYSTORE_PASSWORD: Password protecting the keystore.
+      # ANDROID_KEY_ALIAS: Alias of the release key in the keystore.
+      # ANDROID_KEY_PASSWORD: Password protecting the release key.
+      - name: Decode Android release keystore
+        shell: bash
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+        working-directory: ./android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       - name: Build Android release
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         working-directory: ./android
+        env:
+          CI: 'true'
+          RAQEEB_KEYSTORE_PATH: app/release.keystore
+          RAQEEB_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RAQEEB_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RAQEEB_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       - run: test -s app/build/outputs/apk/release/app-release.apk
         working-directory: ./android
       - run: mkdir -p public/downloads && cp android/app/build/outputs/apk/release/app-release.apk public/downloads/Raqeeb.apk
