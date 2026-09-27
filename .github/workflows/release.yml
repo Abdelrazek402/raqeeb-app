@@ -40,33 +40,74 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
         working-directory: ./android
-      # Required repository secrets:
-      # ANDROID_KEYSTORE_BASE64: Base64-encoded release keystore file.
-      # ANDROID_KEYSTORE_PASSWORD: Password protecting the keystore.
-      # ANDROID_KEY_ALIAS: Alias of the release key in the keystore.
-      # ANDROID_KEY_PASSWORD: Password protecting the release key.
+      - name: Validate Android release signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "::error::Required GitHub Actions secret ${secret_name} is not set."
+              exit 1
+            fi
+          done
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       - name: Decode Android release keystore
         shell: bash
-        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RAQEEB_KEYSTORE_PATH"
+          test -s "$RAQEEB_KEYSTORE_PATH"
         working-directory: ./android
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          RAQEEB_KEYSTORE_PATH: ${{ runner.temp }}/raqeeb-release.keystore
       - name: Build Android release
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         working-directory: ./android
         env:
           CI: 'true'
-          RAQEEB_KEYSTORE_PATH: app/release.keystore
+          RAQEEB_KEYSTORE_PATH: ${{ runner.temp }}/raqeeb-release.keystore
           RAQEEB_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           RAQEEB_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           RAQEEB_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      - run: test -s app/build/outputs/apk/release/app-release.apk
-        working-directory: ./android
-      - run: mkdir -p public/downloads && cp android/app/build/outputs/apk/release/app-release.apk public/downloads/Raqeeb.apk
+      - name: Verify Android release APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$apk"
+          sdk_path="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          apksigner=''
+          if command -v apksigner >/dev/null 2>&1; then
+            apksigner="$(command -v apksigner)"
+          elif [[ -n "$sdk_path" && -d "$sdk_path/build-tools" ]]; then
+            apksigner="$(find "$sdk_path/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          fi
+          if [[ -n "$apksigner" ]]; then
+            "$apksigner" verify --verbose --print-certs "$apk"
+          else
+            echo "::warning::apksigner is unavailable; APK signature could not be independently verified."
+          fi
+          mkdir -p public/downloads
+          cp "$apk" public/downloads/Raqeeb.apk
+          test -s public/downloads/Raqeeb.apk
+      - name: Remove temporary Android keystore
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/raqeeb-release.keystore"
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: public/downloads/Raqeeb.apk
+          if-no-files-found: error
 
   windows:
     runs-on: windows-latest

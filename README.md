@@ -30,6 +30,30 @@ npm run build
 
 Install `public/downloads/Raqeeb.apk`, open the app, then enable the Accessibility Service. Configure the PhoneLink server URL, device ID, and device token in the app preferences before starting synchronization.
 
+#### Android release signing
+
+Release APKs must be signed with the private release key. The key is never stored in this repository; `assembleRelease` fails if its signing configuration is missing. Debug builds continue to use Android's normal debug key.
+
+Create the permanent upload key on a trusted computer outside the repository. The following PowerShell commands place it in your user profile; `keytool` prompts for the keystore and key passwords, so do not add password arguments:
+
+```powershell
+$keyDirectory = Join-Path $HOME ".raqeeb-signing"
+New-Item -ItemType Directory -Force $keyDirectory | Out-Null
+$keystore = Join-Path $keyDirectory "raqeeb-release.jks"
+keytool -genkeypair -v -storetype JKS -keystore $keystore -alias raqeeb -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Raqeeb, O=Raqeeb App, C=EG"
+keytool -list -v -keystore $keystore -alias raqeeb
+```
+
+Confirm the listing reports alias `raqeeb` and owner `CN=Raqeeb, O=Raqeeb App, C=EG`. Record that alias and certificate DN separately from the key. Keep the keystore and passwords in a password manager, and retain an encrypted offline backup on a separate, secure medium; verify the backup can be read. Never commit, upload as a workflow artifact, or share the keystore or passwords.
+
+Add these four repository **Actions secrets** under **Settings → Secrets and variables → Actions**: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Set the alias secret to `raqeeb`; enter both passwords directly as secrets, not in command arguments or files. To base64-encode and send the keystore to GitHub without printing the private-key material in the terminal, authenticate `gh` for this repository and run:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes($keystore)) | gh secret set ANDROID_KEYSTORE_BASE64
+```
+
+The release workflow decodes the key into the runner's temporary directory, signs the release APK, verifies the signature with `apksigner` when available, and publishes it as `public/downloads/Raqeeb.apk`. Do not create or push a release tag until all four Actions secrets are configured. A newly created self-signed key can still trigger Play Protect warnings; signing alone does not guarantee those warnings disappear. Play App Signing or trusted distribution and established reputation may be needed.
+
 ### Windows
 
 Download `Raqeeb-Setup.exe` from a GitHub Release and run it. It is a self-contained win-x64 application with the compiled Vite site embedded in the executable; on first launch it extracts the UI into the current user's local application data. It is not an MSI installer and does not install the WebView2 runtime.

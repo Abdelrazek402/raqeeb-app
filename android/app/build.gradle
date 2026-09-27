@@ -20,23 +20,45 @@ android {
         }
     }
 
-    def releaseKeystorePath = System.getenv('RAQEEB_KEYSTORE_PATH')
-    def releaseKeystorePassword = System.getenv('RAQEEB_KEYSTORE_PASSWORD')
-    def releaseKeyAlias = System.getenv('RAQEEB_KEY_ALIAS')
-    def releaseKeyPassword = System.getenv('RAQEEB_KEY_PASSWORD')
-    def hasReleaseSigning = [releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword]
-        .every { value -> value != null && !value.trim().isEmpty() }
-    if (hasReleaseSigning) {
-        hasReleaseSigning = file(releaseKeystorePath).isFile()
-    }
+    def releaseSigningValues = [
+        RAQEEB_KEYSTORE_PATH: System.getenv('RAQEEB_KEYSTORE_PATH'),
+        RAQEEB_KEYSTORE_PASSWORD: System.getenv('RAQEEB_KEYSTORE_PASSWORD'),
+        RAQEEB_KEY_ALIAS: System.getenv('RAQEEB_KEY_ALIAS'),
+        RAQEEB_KEY_PASSWORD: System.getenv('RAQEEB_KEY_PASSWORD')
+    ]
+    def missingReleaseSigningValues = releaseSigningValues.findAll { name, value ->
+        value == null || value.trim().isEmpty()
+    }.keySet()
 
     signingConfigs {
         release {
-            if (hasReleaseSigning) {
-                storeFile file(releaseKeystorePath)
-                storePassword releaseKeystorePassword
-                keyAlias releaseKeyAlias
-                keyPassword releaseKeyPassword
+            if (releaseSigningValues.RAQEEB_KEYSTORE_PATH) {
+                storeFile file(releaseSigningValues.RAQEEB_KEYSTORE_PATH)
+            }
+            if (releaseSigningValues.RAQEEB_KEYSTORE_PASSWORD) {
+                storePassword releaseSigningValues.RAQEEB_KEYSTORE_PASSWORD
+            }
+            if (releaseSigningValues.RAQEEB_KEY_ALIAS) {
+                keyAlias releaseSigningValues.RAQEEB_KEY_ALIAS
+            }
+            if (releaseSigningValues.RAQEEB_KEY_PASSWORD) {
+                keyPassword releaseSigningValues.RAQEEB_KEY_PASSWORD
+            }
+        }
+    }
+
+    gradle.taskGraph.whenReady { taskGraph ->
+        if (taskGraph.allTasks.any { task -> task.name.toLowerCase().contains('release') }) {
+            if (!missingReleaseSigningValues.isEmpty()) {
+                throw new GradleException(
+                    "Cannot build an Android release: set these environment variables: " +
+                    missingReleaseSigningValues.join(', ')
+                )
+            }
+            if (!file(releaseSigningValues.RAQEEB_KEYSTORE_PATH).isFile()) {
+                throw new GradleException(
+                    "Cannot build an Android release: RAQEEB_KEYSTORE_PATH does not point to a keystore file."
+                )
             }
         }
     }
@@ -48,7 +70,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
     compileOptions {
