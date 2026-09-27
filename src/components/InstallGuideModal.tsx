@@ -100,10 +100,10 @@ export function InstallGuideModal({
   const handleOpenInNewWindow = () => {
     sounds.playSuccessTone();
     window.open(appUrl, '_blank', 'noopener,noreferrer');
-    setInstallStatusMessage('🚀 تم فتح التطبيق في نافذة مستقلة! ستظهر لك رسالة التثبيت (Install) مباشرة في شريط العنوان أو القائمة.');
+    setInstallStatusMessage('🚀 تم فتح التطبيق في نافذة مستقلة. قد يوفر المتصفح خياراً لإضافته إلى الشاشة الرئيسية أو تثبيته كتطبيق ويب.');
   };
 
-  // 1-Click Browser/System Native Installation (PWA / WebAPK)
+  // Browser-native installation is available only when the browser exposes the prompt.
   const handleNativeInstall = async () => {
     sounds.playSuccessTone();
     if (deferredPrompt) {
@@ -112,7 +112,7 @@ export function InstallGuideModal({
         const choice = await deferredPrompt.userChoice;
         if (choice?.outcome === 'accepted') {
           onPromptTriggered?.();
-          setInstallStatusMessage('✅ تم تثبيت التطبيق بنجاح كبرنامج رسمي على جهازك!');
+          setInstallStatusMessage('✅ تمت الموافقة على تثبيت الموقع كتطبيق ويب من المتصفح.');
           return;
         }
       } catch (err) {
@@ -120,10 +120,10 @@ export function InstallGuideModal({
       }
     }
     
-    // If running in an iframe or prompt not ready yet, open standalone window
+    // If running in an iframe or the prompt is unavailable, open the site or show manual steps.
     if (isInIframe) {
       window.open(appUrl, '_blank');
-      setInstallStatusMessage('💡 تم فتح التطبيق في نافذة مستقلة حتى يتيح لك المتصفح تثبيته فوراً.');
+      setInstallStatusMessage('💡 تم فتح التطبيق في نافذة مستقلة. إذا كان مدعوماً، استخدم قائمة المتصفح لإضافته إلى الشاشة الرئيسية.');
     } else {
       if (activeTab === 'windows') {
         handleDownloadWindowsScript();
@@ -139,7 +139,7 @@ export function InstallGuideModal({
     setIsDownloading(true);
     const script = generateWindowsDesktopInstallerScript(appUrl);
     downloadTextFile('Install-Raqeeb.bat', script, 'application/x-bat;charset=utf-8');
-    setInstallStatusMessage('✅ تم تنزيل مُثبّت الويندوز السريع (Install-Raqeeb.bat)! اضغط عليه لتثبيت أيقونة التطبيق على سطح المكتب وتشغيله فوراً.');
+    setInstallStatusMessage('✅ تم تنزيل سكربت لإنشاء اختصار رقيب على سطح المكتب؛ هذا ليس مُثبّتاً للبرنامج الأصلي.');
     setTimeout(() => setIsDownloading(false), 1500);
   };
 
@@ -147,17 +147,17 @@ export function InstallGuideModal({
   const handleDownloadWindowsExe = () => {
     sounds.playSuccessTone();
     setIsDownloading(true);
-    setInstallStatusMessage('✅ جاري تنزيل (Raqeeb-Setup.exe)... قم بتشغيله ليبدأ التطبيق فوراً كبرنامج مستقل.');
-    downloadWindowsExe(appUrl);
+    setInstallStatusMessage('جاري تنزيل ملف Windows من أحدث إصدار منشور.');
+    downloadWindowsExe();
     setTimeout(() => setIsDownloading(false), 1500);
   };
 
   // Immediate Download for Android .APK
-  const handleDownloadAndroidApk = async () => {
+  const handleDownloadAndroidApk = () => {
     sounds.playSuccessTone();
     setIsDownloading(true);
-    setInstallStatusMessage('✅ جاري تنزيل حزمة (Raqeeb.apk)... يمكنك تثبيتها أو اتباع الخطوات لتثبيتها كـ WebAPK معتمد.');
-    await downloadAndroidApk(appUrl);
+    setInstallStatusMessage('جاري تنزيل ملف APK من أحدث إصدار منشور.');
+    downloadAndroidApk();
     setTimeout(() => setIsDownloading(false), 1500);
   };
 
@@ -183,7 +183,7 @@ export function InstallGuideModal({
             </div>
             <div>
               <h3 className="text-lg font-bold">تثبيت تطبيق «رَقِيب» الحقيقي</h3>
-              <p className="text-xs text-teal-100 mt-0.5">تثبيت سلس وسريع 100% لأنظمة ويندوز وأندرويد وآيفون</p>
+              <p className="text-xs text-teal-100 mt-0.5">تعليمات التثبيت تختلف حسب النظام وإعدادات الجهاز</p>
             </div>
           </div>
         </div>
@@ -262,12 +262,12 @@ export function InstallGuideModal({
           {activeTab === 'windows' && (
             <div className="space-y-4 text-right">
               
-              {/* OPTION 1: 1-Click Fast Batch Desktop Installer (RECOMMENDED & 100% RELIABLE) */}
+              {/* OPTION 1: Windows shortcut setup */}
               <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-3xl space-y-3 shadow-xs">
                 <div className="space-y-1">
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-600 text-white text-[10px] font-bold rounded-full">
                     <ShieldCheck className="w-3 h-3" />
-                    الخيار الأسرع والمضمون 100%
+                    إعداد اختصار ويندوز
                   </span>
                   <h4 className="text-sm font-extrabold text-teal-950">
                     أداة التثبيت التلقائي لويندوز (Install-Raqeeb.bat)
@@ -376,18 +376,18 @@ export function InstallGuideModal({
           {activeTab === 'android' && (
             <div className="space-y-4 text-right">
               
-              {/* METHOD 1: WebAPK Official Install (Zero Parsing Error, 0 Play Protect Blocks) */}
+              {/* Install the site as a PWA where supported by the browser. */}
               <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-3xl space-y-3 shadow-xs">
                 <div className="space-y-1">
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-600 text-white text-[10px] font-bold rounded-full">
                     <ShieldCheck className="w-3 h-3" />
-                    تثبيت أندرويد الرسمي المعتمد من Google
+                    تثبيت الموقع كتطبيق ويب
                   </span>
                   <h4 className="text-sm font-extrabold text-teal-950">
-                    تثبيت تطبيق أندرويد الحقيقي (حزمة WebAPK رسمية)
+                    إضافة رقيب إلى الشاشة الرئيسية
                   </h4>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    لا حاجة لتحميل ملفات APK غير معتمدة قد تسبب خطأ «فشل تحليل الحزمة». نظام أندرويد ومتصفح Chrome يقومان تلقائياً بإنشاء حزمة أندرويد رسمية وتثبيتها في قائمة تطبيقات هاتفك فوراً!
+                    يتيح المتصفح تثبيت الموقع كتطبيق ويب عند دعمه لهذه الميزة. هذا الخيار لا يثبت ملف APK، وقد تختلف الإمكانات حسب الجهاز والمتصفح.
                   </p>
                 </div>
 
@@ -409,7 +409,7 @@ export function InstallGuideModal({
                     <li>افتح الرابط في متصفح <strong>Google Chrome</strong> على هاتفك.</li>
                     <li>اضغط على زر القائمة <strong>(الثلاث نقاط ⋮)</strong> في أعلى المتصفح.</li>
                     <li>اضغط على <strong>«تثبيت التطبيق (Install app)»</strong> أو <strong>«إضافة إلى الشاشة الرئيسية»</strong>.</li>
-                    <li>يتم تثبيت تطبيق «رَقِيب» فوراً في قائمة تطبيقات الهاتف بأيقونته الرسمية ويعمل حتى بدون إنترنت!</li>
+                    <li>اتبع تعليمات المتصفح إن ظهر خيار التثبيت؛ توفره وسلوكه يعتمدان على المتصفح والجهاز.</li>
                   </ol>
                 </div>
               </div>

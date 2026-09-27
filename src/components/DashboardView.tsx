@@ -95,7 +95,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [dashboardPeriod, stats, syncState, prayers, blockedAttempts]);
 
   const confirmedCount = prayers.filter(p => p.id !== 'sunrise' && p.confirmed).length;
-  const streakInfo = calculatePeriodMoonProgress(dashboardPeriod, periodData.confirmedPrayers, stats.streakDays || 1);
+  const streakInfo = calculatePeriodMoonProgress(dashboardPeriod, periodData.confirmedPrayers, stats.streakDays || 0);
 
   const win = syncState.devices.windows;
   const android = syncState.devices.android;
@@ -104,17 +104,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const isWindows = selectedDeviceFilter === 'windows';
   const isAndroid = selectedDeviceFilter === 'android';
 
-  const displaySocialMins = isWindows 
-    ? Math.round(periodData.socialTimeMinutes * (win.stats.socialTimeMinutes / Math.max(1, stats.socialTimeMinutes || 1)))
-    : isAndroid 
-      ? Math.round(periodData.socialTimeMinutes * (android.stats.socialTimeMinutes / Math.max(1, stats.socialTimeMinutes || 1)))
-      : periodData.socialTimeMinutes;
-
-  const displayBrowserMins = isWindows 
-    ? Math.round(periodData.browserTimeMinutes * (win.stats.browserTimeMinutes / Math.max(1, stats.browserTimeMinutes || 1)))
-    : isAndroid 
-      ? Math.round(periodData.browserTimeMinutes * (android.stats.browserTimeMinutes / Math.max(1, stats.browserTimeMinutes || 1)))
-      : periodData.browserTimeMinutes;
+  const displayBrowserMins = periodData.browserTimeMinutes;
 
   const displayBlockedCount = isWindows 
     ? win.stats.blockedAttemptsCount 
@@ -140,10 +130,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     if (h === 0) return `${m} دقيقة`;
     return `${h}:${String(m).padStart(2, '0')} ساعة`;
   };
-
-  const totalDeviceMinutes = win.stats.totalTimeMinutes + android.stats.totalTimeMinutes;
-  const winPercent = totalDeviceMinutes > 0 ? Math.round((win.stats.totalTimeMinutes / totalDeviceMinutes) * 100) : 60;
-  const androidPercent = 100 - winPercent;
 
   // Late night detection (23:00 - 05:00)
   const currentHour = new Date().getHours();
@@ -418,14 +404,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           title="اضغط لفتح التقرير البصري لوقت السوشيال"
         >
           <div className="flex items-center justify-between text-blue-600 mb-1.5">
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-600">وقت السوشيال</span>
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-600">وقت تطبيقات التواصل</span>
             <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 group-hover:scale-110 transition-transform" />
           </div>
           <div className="text-xl sm:text-2xl font-bold text-slate-900 font-mono">
-            {formatHoursMins(displaySocialMins)}
+            غير مقاس
           </div>
           <div className="mt-1.5 text-[10px] sm:text-[11px] text-slate-500 truncate flex items-center justify-between">
-            <span>{isWindows ? 'تصفح السوشيال' : isAndroid ? 'تصفح الهاتف' : 'إجمالي السوشيال'}</span>
+            <span>لا يوجد قياس متزامن</span>
             <span className="text-[9px] text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">تقرير 📊</span>
           </div>
         </div>
@@ -434,17 +420,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div 
           onClick={() => setSelectedReportModal('browser')}
           className="bg-white border border-slate-200 p-3.5 sm:p-4 rounded-2xl shadow-sm hover:border-cyan-500/60 hover:shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer group"
-          title="اضغط لفتح التقرير البصري لسجل المتصفح"
+          title="الوقت الذي كان فيه تبويب رقيب ظاهراً ونشطاً، وليس إجمالي استخدام المتصفح"
         >
           <div className="flex items-center justify-between text-cyan-600 mb-1.5">
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-600">وقت المتصفح</span>
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-600">نشاط تبويب رقيب</span>
             <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-600 group-hover:scale-110 transition-transform" />
           </div>
           <div className="text-xl sm:text-2xl font-bold text-slate-900 font-mono">
             {formatHoursMins(displayBrowserMins)}
           </div>
           <div className="mt-1.5 text-[10px] sm:text-[11px] text-slate-500 truncate flex items-center justify-between">
-            <span>{isWindows ? 'استخدام المتصفح' : isAndroid ? 'متصفح الهاتف' : 'التصفح الآمن'}</span>
+            <span>هذا التبويب فقط؛ ليس وقت الجهاز</span>
             <span className="text-[9px] text-cyan-700 font-bold bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-100">تقرير 📊</span>
           </div>
         </div>
@@ -463,7 +449,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {displayBlockedCount}
           </div>
           <div className="mt-1.5 text-[10px] sm:text-[11px] text-slate-500 truncate flex items-center justify-between">
-            <span>ردع وحماية 100% 🔒</span>
+            <span>سجل محاولات محلي 🔒</span>
             <span className="text-[9px] text-rose-700 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">تقرير 📊</span>
           </div>
         </div>
@@ -634,7 +620,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* Tab 2: Neuroplasticity */}
             {activityTab === 'neuro' && (
               <div className="pt-1">
-                <NeuroplasticityCard streakDays={stats.streakDays || 1} />
+                <NeuroplasticityCard streakDays={stats.streakDays || 0} />
               </div>
             )}
 
@@ -643,7 +629,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="pt-1">
                 <VictoryJournalView
                   victories={victories}
-                  streakDays={stats.streakDays || 1}
+                  streakDays={stats.streakDays || 0}
                   onOpenTawbahPlan={onOpenTawbahPlan || (() => {})}
                   onOpenPanic={onOpenPanic || (() => {})}
                   onAddVictory={onAddVictory}

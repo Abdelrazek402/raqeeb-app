@@ -166,7 +166,7 @@ export const AiCompanionView: React.FC<AiCompanionViewProps> = ({ stats, prayers
   };
 
   const handleGenerateDailyDua = () => {
-    const streak = stats?.streakDays || 1;
+    const streak = stats?.streakDays || 0;
     const istighfar = stats?.istighfarCount || 0;
     const text = `أنا بفضل الله في اليوم الـ ${streak} من الثبات، واستغفرت الله ${istighfar} مرة اليوم. اكتب لي دعاءً وتوجيهاً إيمانياً مركزاً يشد أزري ويجدد عزيمتي.`;
     handleSend(text);
@@ -213,7 +213,7 @@ export const AiCompanionView: React.FC<AiCompanionViewProps> = ({ stats, prayers
               </span>
             </div>
             <p className="text-xs text-teal-200/90 flex items-center gap-2 mt-0.5">
-              <span>أيام الثبات: <strong className="text-amber-300 font-extrabold">{stats?.streakDays || 1}</strong> يوم</span>
+              <span>أيام الثبات: <strong className="text-amber-300 font-extrabold">{stats?.streakDays || 0}</strong> يوم</span>
               <span>•</span>
               <span>استغفار اليوم: <strong className="text-amber-300 font-extrabold">{stats?.istighfarCount || 0}</strong></span>
             </p>

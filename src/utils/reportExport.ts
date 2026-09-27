@@ -35,10 +35,10 @@ export function generateDailyReportText(
 - تنبيهات الـ 10 دقائق المستجابة: ${stats.remindersShown} تنبيهات
 
 🛡️ الحماية وسجل الانتصارات:
-- مرات الحجب التلقائي وردع الفتن: ${stats.blockedAttemptsCount} مرة (بنسبة حماية 100%)
+- مرات الحجب المسجلة محلياً: ${stats.blockedAttemptsCount} مرة (دون نسبة نجاح متحققة)
 - انتصارات غض البصر والاستغاثة: ${victories.length} موقف ثبات مسجل
 - جلسات التركيز والإنجاز: ${stats.focusSessionsCount || 0} جلسة (${stats.focusMinutesTotal || 0} دقيقة)
-- إجمالي وقت الشاشة المفلتر: ${(stats.socialTimeMinutes || 0) + (stats.browserTimeMinutes || 0)} دقيقة (سوشيال: ${stats.socialTimeMinutes}د | متصفح: ${stats.browserTimeMinutes}د)
+- نشاط تبويب رقيب المسجل: ${stats.browserTimeMinutes || 0} دقيقة؛ وقت تطبيقات التواصل وإجمالي وقت الجهاز غير مقاس
 
 قال تعالى: «إِنَّ الَّذِينَ قَالُوا رَبُّنَا اللَّهُ ثُمَّ اسْتَقَامُوا فَلَا خَوْفٌ عَلَيْهِمْ وَلَا هُمْ يَحْزَنُونَ»
 ===============================================================`;
@@ -57,29 +57,28 @@ export function generateWeeklyReportText(
   const daysBreakdown = weekDaysData.map(d => {
     const statusMarker = d.isToday ? ' [اليوم]' : d.isFuture ? ' (قادم)' : '';
     return `  • ${d.nameAr} (${d.dayOfMonth} ${weekPeriod.days[0].date.toLocaleDateString('ar-EG', { month: 'short' })})${statusMarker}: ` +
-      `صلوات: ${d.confirmedPrayers}/5 | سوشيال: ${d.socialMins}د | حجب: ${d.blockedCount} | استغفار: ${d.istighfarCount}`;
+      `${d.hasRecordedData ? `صلوات: ${d.confirmedPrayers}/5 | حجب: ${d.blockedCount} | استغفار: ${d.istighfarCount}` : 'لا يوجد سجل لهذا اليوم'}`;
   }).join('\n');
 
   return `===============================================================
 📊 التقرير الأسبوعي الشامل للثبات والالتزام — رَقِيب
 دورة الأسبوع: يبدأ من السبت حتى الجمعة
 نطاق الأسبوع الحالي: من السبت ${weekPeriod.startFormatted} حتى الجمعة ${weekPeriod.endFormatted}
-حالة الأسبوع: تم استيفاء ${weekPeriod.elapsedDaysCount} من 7 أيام
+حالة الأسبوع: تم استيفاء ${weekPeriod.elapsedDaysCount} من 7 أيام؛ بيانات محفوظة عن ${weekData.recordedDaysCount} يوماً
 ===============================================================
 
 🔥 مؤشر الاستمرار والتعافي: ${streakDays} يوماً متواصلاً
 
 🕌 حصيلة الصلوات المكتوبة للأسبوع:
-- الصلوات المؤداة: ${weekData.confirmedPrayers} صلاة (من إجمالي دورة الأسبوع 35 صلاة)
+- الصلوات المؤداة: ${weekData.confirmedPrayers} صلاة من الأيام المسجلة فقط
 - نسبة إتمام الفرائض في الأيام المنقضية: ${Math.round((weekData.confirmedPrayers / Math.max(1, weekPeriod.elapsedDaysCount * 5)) * 100)}%
 
 📅 تفصيل الأيام السبعة (السبت ⬅ الجمعة):
 ${daysBreakdown}
 
 ⏱️ وقت الشاشة وتطبيقات السوشيال:
-- إجمالي وقت السوشيال في الأسبوع: ${weekData.socialTimeMinutes} دقيقة (${(weekData.socialTimeMinutes / 60).toFixed(1)} ساعة)
-- إجمالي وقت المتصفح: ${weekData.browserTimeMinutes} دقيقة (${(weekData.browserTimeMinutes / 60).toFixed(1)} ساعة)
-- تقسيم الأجهزة: ويندوز (${weekData.windowsScreenMins}د) • أندرويد (${weekData.androidScreenMins}د)
+- وقت تطبيقات التواصل وإجمالي استخدام الأجهزة: غير مقاس
+- نشاط تبويب رقيب المسجل: ${weekData.browserTimeMinutes} دقيقة (ليس إجمالي وقت المتصفح)
 
 🛡️ درع الحجب والاستغفار:
 - إجمالي محاولات الحجب المصدودة: ${weekData.blockedAttemptsCount} محاولة
@@ -242,25 +241,17 @@ ${prayersBreakdown}
       break;
     }
     case 'social': {
-      const hours = (periodData.socialTimeMinutes / 60).toFixed(1);
       specificDetails = `
 📱 تقرير استهلاك وسائل التواصل الاجتماعي:
-- إجمالي وقت السوشيال في هذه الفترة: ${periodData.socialTimeMinutes} دقيقة (${hours} ساعة)
-- توزيع الأجهزة (إجمالي وقت الشاشة):
-  • جهاز الكمبيوتر (ويندوز): ${periodData.windowsScreenMins} دقيقة
-  • الهاتف المحمول (أندرويد): ${periodData.androidScreenMins} دقيقة
-- تقييم الانضباط: ${periodData.socialTimeMinutes > 120 ? 'تنبيه: استهلاك مرتفع، يُنصح بتفعيل وضع التركيز' : 'ممتاز: استهلاك متزن ومضبوط بحمد الله'}`;
+- وقت استخدام التطبيقات غير مقاس في لوحة الويب؛ لا تتوفر بيانات لتقييم الحد الآمن أو توزيع الأجهزة.`;
       break;
     }
     case 'browser': {
       const hours = (periodData.browserTimeMinutes / 60).toFixed(1);
       specificDetails = `
 🌐 تقرير نشاط التصفح والإنترنت:
-- إجمالي وقت التصفح في هذه الفترة: ${periodData.browserTimeMinutes} دقيقة (${hours} ساعة)
-- توزيع الأجهزة (إجمالي وقت الشاشة):
-  • متصفح الكمبيوتر (ويندوز): ${periodData.windowsScreenMins} دقيقة
-  • متصفح الهاتف (أندرويد): ${periodData.androidScreenMins} دقيقة
-- حالة درع الحماية في المتصفح: مُفعل ومراقب بنسبة أمان 100%`;
+- نشاط تبويب رقيب المسجل: ${periodData.browserTimeMinutes} دقيقة (${hours} ساعة)، ولا يمثل إجمالي وقت المتصفح
+- توزيع الأجهزة وحالة SafeSearch الخارجية غير متحقق منهما`;
       break;
     }
     case 'blocked': {
@@ -271,7 +262,7 @@ ${prayersBreakdown}
       specificDetails = `
 🛡️ سجل الحماية وردع الفتن والمواقع المحظورة:
 - إجمالي محاولات الحجب المصدودة: ${periodData.blockedAttemptsCount} محاولة
-- معدل نجاح الحجب والردع: 100% بنجاح تام
+- لا تتوفر نسبة نجاح مثبتة أو تفصيل حسب الجهاز
 - أحدث المحاولات المصدودة بحمد الله:
 ${recentBlocked}
 - انتصارات غض البصر والاستغاثة المسجلة: ${victories.length} موقف ثبات واعتصام بالله`;
@@ -374,4 +365,3 @@ export function downloadMetricDetailReport(
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-

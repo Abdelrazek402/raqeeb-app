@@ -276,7 +276,7 @@ export const QuranReaderView: React.FC<QuranReaderViewProps> = ({ stats, onUpdat
     onUpdateStats({
       ...stats,
       quranPagesRead: newPagesRead,
-      streakDays: Math.max(stats.streakDays || 1, 1)
+      streakDays: Math.max(stats.streakDays || 0, 0)
     });
 
     if (newPagesRead === 1 && onDailyWirdCompleted) {

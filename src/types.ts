@@ -15,6 +15,7 @@ export type ProtectionLevel = 1 | 2 | 3 | 4;
 export type DeviceViewFilter = 'all' | 'windows' | 'android';
 
 export interface DeviceStats {
+  usageMeasured: boolean;
   totalTimeMinutes: number;
   socialTimeMinutes: number;
   browserTimeMinutes: number;
@@ -63,7 +64,7 @@ export interface PhoneLinkState {
   sharedClipboard: string;
   clipboardSender: 'windows' | 'android' | null;
   lastClipboardSync: string | null;
-  lastPingSecondsAgo: number;
+  lastPingSecondsAgo: number | null;
   notifications: PhoneLinkNotification[];
 }
 
@@ -190,7 +191,7 @@ export interface ChecklistItem {
   phaseTitle: string;
   title: string;
   description: string;
-  status: 'planned' | 'in_progress' | 'tested' | 'completed';
+  status: 'planned' | 'pending' | 'in_progress' | 'tested' | 'completed';
   platform: 'android' | 'windows' | 'extension' | 'all';
 }
 
@@ -363,4 +364,3 @@ export interface QiblaData {
   bearing: number;
   distanceKm: number;
 }
-

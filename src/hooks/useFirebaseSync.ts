@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, type Dispatch, type SetStateAction } from 'react';
-import { doc, onSnapshot, setDoc, getDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDoc, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, sanitizeForFirestore } from '../utils/firebase';
 import { DeviceSyncHubState, PhoneLinkNotification, DeviceInfo, DailyStats, PrayerInfo, BlockedAttempt } from '../types';
 import { sounds } from '../utils/audio';
@@ -31,13 +31,14 @@ export function useFirebaseSync(
   prayers?: PrayerInfo[],
   blockedAttempts?: BlockedAttempt[],
   onConfirmPrayerSync?: (prayerId: string) => void,
-  cloudEnabled = true
+  cloudEnabled = true,
+  ownerUid: string | null = null
 ): FirebaseSyncEngine {
   const [localDeviceId] = useState<string>(() => getOrCreateDeviceId());
   const [currentDeviceType, setCurrentDeviceType] = useState<ActiveDeviceType>(() => detectDevicePlatform());
   const [localDeviceName] = useState<string>(() => getDeviceFriendlyName(detectDevicePlatform()));
 
-  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(cloudEnabled);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(cloudEnabled && ownerUid !== null);
   const [isPhoneRinging, setIsPhoneRinging] = useState<boolean>(false);
   const [incomingClipboard, setIncomingClipboard] = useState<{
     text: string;
@@ -79,7 +80,7 @@ export function useFirebaseSync(
     let batteryInstance: any = null;
 
     const setupBattery = async () => {
-      if (cloudEnabled && typeof navigator !== 'undefined' && 'getBattery' in (navigator as any) && db) {
+      if (cloudEnabled && ownerUid && typeof navigator !== 'undefined' && 'getBattery' in (navigator as any) && db) {
         try {
           batteryInstance = await (navigator as any).getBattery();
           const syncBatteryState = async () => {
@@ -115,10 +116,10 @@ export function useFirebaseSync(
         batteryInstance.removeEventListener?.('chargingchange', () => {});
       }
     };
-  }, [syncState.pairingCode, cloudEnabled]);
+  }, [syncState.pairingCode, cloudEnabled, ownerUid]);
 
   useEffect(() => {
-    if (cloudEnabled) return;
+    if (cloudEnabled && ownerUid) return;
     setIsCloudConnected(false);
     setIsPhoneRinging(false);
     setIncomingClipboard(null);
@@ -131,11 +132,11 @@ export function useFirebaseSync(
         android: { ...prev.devices.android, status: 'offline' }
       }
     }));
-  }, [cloudEnabled, setSyncState]);
+  }, [cloudEnabled, ownerUid, setSyncState]);
 
   // Main real-time Firestore synchronization subscription
   useEffect(() => {
-    if (!db || !cloudEnabled) {
+    if (!db || !cloudEnabled || !ownerUid) {
       setIsCloudConnected(false);
       return;
     }
@@ -159,9 +160,10 @@ export function useFirebaseSync(
         const devName = localDeviceNameRef.current;
 
         const currentLocalStats = {
-          totalTimeMinutes: (dailyStats?.browserTimeMinutes || 0) + (dailyStats?.socialTimeMinutes || 0),
-          socialTimeMinutes: dailyStats?.socialTimeMinutes || 0,
-          browserTimeMinutes: dailyStats?.browserTimeMinutes || 0,
+          usageMeasured: false,
+          totalTimeMinutes: 0,
+          socialTimeMinutes: 0,
+          browserTimeMinutes: 0,
           blockedAttemptsCount: blockedAttempts?.length || dailyStats?.blockedAttemptsCount || 0,
           remindersShown: dailyStats?.remindersShown || 0,
           istighfarCount: dailyStats?.istighfarCount || 0,
@@ -172,7 +174,7 @@ export function useFirebaseSync(
         const expiresAtDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         const initialDoc: any = {
           pairingCode: activeCode,
-          token: syncState.token || 'rq_sec_token',
+          userId: ownerUid,
           lastSyncTime: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           updatedAt: serverTimestamp(),
           expiresAt: Timestamp.fromDate(expiresAtDate)
@@ -193,11 +195,10 @@ export function useFirebaseSync(
             }
           };
           initialDoc.phoneLink = {
-            isLinked: true,
-            pairingCode: activeCode,
+            isLinked: false,
             phoneModel: devName,
-            wifiName: 'متصل بالشبكة',
-            lastPingSecondsAgo: 0
+            wifiName: 'غير متصل',
+            lastPingSecondsAgo: null
           };
         } else {
           initialDoc.windowsStatus = 'connected';
@@ -295,9 +296,10 @@ export function useFirebaseSync(
             batteryLevel: remoteWin?.batteryLevel,
             isCharging: remoteWin?.isCharging,
             stats: {
-              totalTimeMinutes: remoteWin?.stats?.totalTimeMinutes ?? prev.devices.windows.stats.totalTimeMinutes,
-              socialTimeMinutes: remoteWin?.stats?.socialTimeMinutes ?? prev.devices.windows.stats.socialTimeMinutes,
-              browserTimeMinutes: remoteWin?.stats?.browserTimeMinutes ?? prev.devices.windows.stats.browserTimeMinutes,
+              usageMeasured: remoteWin?.stats?.usageMeasured === true,
+              totalTimeMinutes: remoteWin?.stats?.usageMeasured === true ? remoteWin.stats.totalTimeMinutes ?? 0 : 0,
+              socialTimeMinutes: remoteWin?.stats?.usageMeasured === true ? remoteWin.stats.socialTimeMinutes ?? 0 : 0,
+              browserTimeMinutes: remoteWin?.stats?.usageMeasured === true ? remoteWin.stats.browserTimeMinutes ?? 0 : 0,
               blockedAttemptsCount: remoteWin?.stats?.blockedAttemptsCount ?? prev.devices.windows.stats.blockedAttemptsCount,
               remindersShown: remoteWin?.stats?.remindersShown ?? prev.devices.windows.stats.remindersShown,
               istighfarCount: remoteWin?.stats?.istighfarCount ?? prev.devices.windows.stats.istighfarCount,
@@ -317,9 +319,10 @@ export function useFirebaseSync(
             batteryLevel: data.phoneLink?.phoneBattery ?? remoteAnd?.batteryLevel,
             isCharging: data.phoneLink?.isCharging ?? remoteAnd?.isCharging,
             stats: {
-              totalTimeMinutes: remoteAnd?.stats?.totalTimeMinutes ?? prev.devices.android.stats.totalTimeMinutes,
-              socialTimeMinutes: remoteAnd?.stats?.socialTimeMinutes ?? prev.devices.android.stats.socialTimeMinutes,
-              browserTimeMinutes: remoteAnd?.stats?.browserTimeMinutes ?? prev.devices.android.stats.browserTimeMinutes,
+              usageMeasured: remoteAnd?.stats?.usageMeasured === true,
+              totalTimeMinutes: remoteAnd?.stats?.usageMeasured === true ? remoteAnd.stats.totalTimeMinutes ?? 0 : 0,
+              socialTimeMinutes: remoteAnd?.stats?.usageMeasured === true ? remoteAnd.stats.socialTimeMinutes ?? 0 : 0,
+              browserTimeMinutes: remoteAnd?.stats?.usageMeasured === true ? remoteAnd.stats.browserTimeMinutes ?? 0 : 0,
               blockedAttemptsCount: remoteAnd?.stats?.blockedAttemptsCount ?? prev.devices.android.stats.blockedAttemptsCount,
               remindersShown: remoteAnd?.stats?.remindersShown ?? prev.devices.android.stats.remindersShown,
               istighfarCount: remoteAnd?.stats?.istighfarCount ?? prev.devices.android.stats.istighfarCount,
@@ -364,9 +367,10 @@ export function useFirebaseSync(
         const devName = localDeviceNameRef.current;
 
         const currentLocalStats = {
-          totalTimeMinutes: (dailyStats?.browserTimeMinutes || 0) + (dailyStats?.socialTimeMinutes || 0),
-          socialTimeMinutes: dailyStats?.socialTimeMinutes || 0,
-          browserTimeMinutes: dailyStats?.browserTimeMinutes || 0,
+          usageMeasured: false,
+          totalTimeMinutes: 0,
+          socialTimeMinutes: 0,
+          browserTimeMinutes: 0,
           blockedAttemptsCount: blockedAttempts?.length || dailyStats?.blockedAttemptsCount || 0,
           remindersShown: dailyStats?.remindersShown || 0,
           istighfarCount: dailyStats?.istighfarCount || 0,
@@ -376,6 +380,7 @@ export function useFirebaseSync(
 
         const updatePayload: any = {
           pairingCode: activeCode,
+          userId: ownerUid,
           updatedAt: serverTimestamp(),
           lastSyncTime: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         };
@@ -407,7 +412,8 @@ export function useFirebaseSync(
         await setDoc(sessionRef, sanitizeForFirestore(updatePayload), { merge: true });
         setIsCloudConnected(true);
       } catch (err) {
-        // network hiccup
+        console.error('Failed to write Firestore heartbeat:', err);
+        setIsCloudConnected(false);
       }
     }, 15000);
 
@@ -415,11 +421,11 @@ export function useFirebaseSync(
       unsubscribe();
       clearInterval(heartbeat);
     };
-  }, [syncState.pairingCode, dailyStats, prayers, blockedAttempts, setSyncState, cloudEnabled]);
+  }, [syncState.pairingCode, dailyStats, prayers, blockedAttempts, setSyncState, cloudEnabled, ownerUid]);
 
   // Push full sync state to Firestore
   const pushToCloud = useCallback(async (newState: DeviceSyncHubState) => {
-    if (!db || !cloudEnabled) return;
+    if (!db || !cloudEnabled || !ownerUid) return;
     try {
       const code = newState.pairingCode.trim().toUpperCase();
       const sessionRef = doc(db, 'pairingSessions', code);
@@ -427,7 +433,7 @@ export function useFirebaseSync(
       
       const payload: any = {
         pairingCode: code,
-        token: newState.token || 'rq_sec_cloud',
+        userId: ownerUid,
         phoneLink: newState.phoneLink,
         devices: newState.devices,
         lastSyncTime: 'الآن (متزامن سحابياً)',
@@ -457,23 +463,21 @@ export function useFirebaseSync(
       console.error('Failed to push to Firebase:', e);
       setIsCloudConnected(false);
     }
-  }, [cloudEnabled]);
+  }, [cloudEnabled, ownerUid]);
 
   // Send direct command across devices (Ring, Stop Ring, Clipboard, Prayer, Shield)
   const sendCommand = useCallback(async (command: string, payload?: any) => {
-    if (!db || !cloudEnabled) return;
+    if (!db || !cloudEnabled || !ownerUid) return;
     const code = activeCodeRef.current;
     const sessionRef = doc(db, 'pairingSessions', code);
     const sender = currentDeviceTypeRef.current;
 
     try {
-      let snap;
-      try {
-        snap = await getDoc(sessionRef);
-      } catch (e) {
-        console.warn("getDoc fallback", e);
+      const snap = await getDoc(sessionRef);
+      if (!snap.exists() || snap.data().userId !== ownerUid) {
+        throw new Error('The pairing session is unavailable or belongs to another account.');
       }
-      const currentDocData = (snap && snap.exists()) ? snap.data() : {};
+      const currentDocData = snap.data();
       const currentPhoneLink = currentDocData.phoneLink || syncState.phoneLink;
       const currentNotifs = currentPhoneLink.notifications || [];
 
@@ -541,6 +545,7 @@ export function useFirebaseSync(
 
       const updateDocPayload: any = {
         pairingCode: code,
+        userId: ownerUid,
         phoneLink: updatedPhoneLink,
         updatedAt: serverTimestamp(),
         lastSyncTime: 'الآن (متزامن)'
@@ -563,23 +568,20 @@ export function useFirebaseSync(
     } catch (err) {
       console.error('Error dispatching sendCommand to Firestore:', err);
     }
-  }, [syncState.phoneLink, onConfirmPrayerSync, setSyncState, cloudEnabled]);
+  }, [syncState.phoneLink, onConfirmPrayerSync, setSyncState, cloudEnabled, ownerUid]);
 
   // Trigger Instant Sync
   const triggerInstantSync = useCallback(async () => {
-    if (!db || !cloudEnabled) return false;
+    if (!db || !cloudEnabled || !ownerUid) return false;
     try {
       const code = activeCodeRef.current;
       const sessionRef = doc(db, 'pairingSessions', code);
-      let snap;
-      try {
-        snap = await getDoc(sessionRef);
-      } catch (e) {
-        console.warn("getDoc offline fallback", e);
-      }
+      const snap = await getDoc(sessionRef);
+      if (!snap.exists() || snap.data().userId !== ownerUid) return false;
       
       const payload: any = {
         pairingCode: code,
+        userId: ownerUid,
         lastSyncTime: 'الآن (تمت المزامنة الفورية بنجاح)',
         updatedAt: serverTimestamp()
       };
@@ -592,7 +594,7 @@ export function useFirebaseSync(
 
       await setDoc(sessionRef, sanitizeForFirestore(payload), { merge: true });
 
-      if (snap && snap.exists()) {
+      if (snap.exists()) {
         const data = snap.data();
         if (data.phoneLink) {
           setSyncState(prev => ({
@@ -610,11 +612,11 @@ export function useFirebaseSync(
       console.warn('Instant sync error:', err);
       return false;
     }
-  }, [setSyncState, cloudEnabled]);
+  }, [setSyncState, cloudEnabled, ownerUid]);
 
   // Join an existing code manually
   const joinSession = useCallback(async (newCode: string) => {
-    if (!db || !cloudEnabled) return false;
+    if (!db || !cloudEnabled || !ownerUid) return false;
     const formatted = newCode.trim().toUpperCase();
     if (!/^RQ-[A-Za-z0-9_\-]{4,32}$/.test(formatted)) {
       return false;
@@ -622,12 +624,15 @@ export function useFirebaseSync(
 
     try {
       const sessionRef = doc(db, 'pairingSessions', formatted);
+      const existing = await getDoc(sessionRef);
+      if (!existing.exists() || existing.data().userId !== ownerUid) return false;
       const platform = currentDeviceTypeRef.current;
       const devId = localDeviceIdRef.current;
       const devName = localDeviceNameRef.current;
 
       const updateData: any = {
         pairingCode: formatted,
+        userId: ownerUid,
         updatedAt: serverTimestamp(),
         lastSyncTime: 'الآن (تم الارتباط)'
       };
@@ -668,12 +673,15 @@ export function useFirebaseSync(
       console.error('Error joining session:', err);
       return false;
     }
-  }, [setSyncState, cloudEnabled]);
+  }, [setSyncState, cloudEnabled, ownerUid]);
 
   // Generate a new fresh pairing code dynamically for this device
   const regeneratePairingCode = useCallback(async () => {
-    const freshCode = generateDynamicPairingCode();
-    if (db && cloudEnabled) {
+    let freshCode = generateDynamicPairingCode();
+    while (freshCode === activeCodeRef.current) {
+      freshCode = generateDynamicPairingCode();
+    }
+    if (db && cloudEnabled && ownerUid) {
       try {
         const sessionRef = doc(db, 'pairingSessions', freshCode);
         const platform = currentDeviceTypeRef.current;
@@ -682,8 +690,9 @@ export function useFirebaseSync(
 
         const initialDoc: any = {
           pairingCode: freshCode,
-          token: `rq_sec_${Math.random().toString(36).substring(2, 10)}`,
+          userId: ownerUid,
           lastSyncTime: 'الآن (جلسة جديدة)',
+          expiresAt: Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
           updatedAt: serverTimestamp()
         };
 
@@ -719,12 +728,38 @@ export function useFirebaseSync(
           };
         }
 
-        await setDoc(sessionRef, sanitizeForFirestore(initialDoc));
-      } catch (e) {
-        console.warn('Error creating new session doc:', e);
+        const batch = writeBatch(db);
+        batch.set(sessionRef, sanitizeForFirestore(initialDoc));
+
+        const previousCode = activeCodeRef.current;
+        if (previousCode && previousCode !== freshCode) {
+          try {
+            const previousRef = doc(db, 'pairingSessions', previousCode);
+            const previous = await getDoc(previousRef);
+            if (previous.exists() && previous.data().userId === ownerUid) {
+              batch.delete(previousRef);
+            }
+          } catch (error) {
+            const isPermissionDenied =
+              error instanceof Error &&
+              'code' in error &&
+              error.code === 'permission-denied';
+            if (!isPermissionDenied) {
+              throw error;
+            }
+          }
+        }
+
+        await batch.commit();
+      } catch (error) {
+        console.error('Failed to create a new pairing session:', error);
+        throw error;
       }
+    } else if (cloudEnabled) {
+      throw new Error('Sign in before creating a cloud pairing session.');
     }
 
+    activeCodeRef.current = freshCode;
     setSyncState(prev => ({
       ...prev,
       pairingCode: freshCode,
@@ -732,7 +767,7 @@ export function useFirebaseSync(
     }));
 
     return freshCode;
-  }, [setSyncState, cloudEnabled]);
+  }, [setSyncState, cloudEnabled, ownerUid]);
 
   // Dismiss ringing
   const dismissRing = useCallback(async () => {

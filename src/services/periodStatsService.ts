@@ -30,6 +30,7 @@ export interface WeekDayStatItem {
   dateStr: string;
   dayOfMonth: number;
   isToday: boolean;
+  hasRecordedData: boolean;
   isPast: boolean;
   isFuture: boolean;
   confirmedPrayers: number;
@@ -39,6 +40,7 @@ export interface WeekDayStatItem {
   remindersCount: number;
   istighfarCount: number;
   focusMins: number;
+  focusSessions: number;
 }
 
 export interface PeriodAggregatedData {
@@ -49,6 +51,8 @@ export interface PeriodAggregatedData {
   title: string;
   timeRangeLabel: string;
   badgeLabel: string;
+  recordedDaysCount: number;
+  elapsedDaysCount: number;
   
   // Unified Aggregated Metrics
   confirmedPrayers: number;
@@ -155,15 +159,25 @@ export function getPeriodAggregatedStats(
     focusSessionsCount: todayStats.focusSessionsCount || 0,
     focusMinutesTotal: todayStats.focusMinutesTotal || 0
   };
+  const hasTodayMeasurements = todayConfirmedCount > 0 ||
+    todayStats.browserTimeMinutes > 0 ||
+    todayStats.focusMinutesTotal > 0 ||
+    todayStats.focusSessionsCount > 0 ||
+    todayStats.istighfarCount > 0 ||
+    todayStats.remindersShown > 0 ||
+    blockedAttempts.length > 0;
 
   // Build the 7 Week Days Data (Saturday -> Friday)
   const weekDaysData: WeekDayStatItem[] = weekPeriod.days.map((item) => {
     let dayData: DayStatsRecord;
+    let hasRecordedData: boolean;
 
     if (item.isToday) {
       dayData = todayRecord;
+      hasRecordedData = hasTodayMeasurements;
     } else if (item.isPast) {
       dayData = history[item.dateStr] || getEmptyPastDay(item.dateStr);
+      hasRecordedData = Boolean(history[item.dateStr]);
     } else {
       // Future day in the current week (e.g. today is Tuesday, so Wednesday, Thursday, Friday are upcoming)
       dayData = {
@@ -177,6 +191,7 @@ export function getPeriodAggregatedStats(
         focusSessionsCount: 0,
         focusMinutesTotal: 0
       };
+      hasRecordedData = false;
     }
 
     return {
@@ -187,27 +202,31 @@ export function getPeriodAggregatedStats(
       isToday: item.isToday,
       isPast: item.isPast,
       isFuture: item.isFuture,
+      hasRecordedData,
       confirmedPrayers: dayData.confirmedPrayers,
       socialMins: dayData.socialTimeMinutes,
       browserMins: dayData.browserTimeMinutes,
       blockedCount: dayData.blockedAttemptsCount,
       remindersCount: dayData.remindersShown,
       istighfarCount: dayData.istighfarCount,
-      focusMins: dayData.focusMinutesTotal
+      focusMins: dayData.focusMinutesTotal,
+      focusSessions: dayData.focusSessionsCount
     };
   });
 
   // Calculate Week Totals
   const weekElapsedDays = weekDaysData.filter(d => d.isPast || d.isToday);
-  const weekConfirmedPrayers = weekElapsedDays.reduce((sum, d) => sum + d.confirmedPrayers, 0);
-  const weekPossiblePrayers = 35; // 7 days * 5 prayers for full Saturday-Friday cycle
-  const weekSocialMins = weekElapsedDays.reduce((sum, d) => sum + d.socialMins, 0);
-  const weekBrowserMins = weekElapsedDays.reduce((sum, d) => sum + d.browserMins, 0);
-  const weekBlockedCount = weekElapsedDays.reduce((sum, d) => sum + d.blockedCount, 0);
-  const weekReminders = weekElapsedDays.reduce((sum, d) => sum + d.remindersCount, 0);
-  const weekIstighfar = weekElapsedDays.reduce((sum, d) => sum + d.istighfarCount, 0);
-  const weekFocusSessions = weekElapsedDays.reduce((sum, d) => sum + (d.focusMins > 0 ? Math.max(1, Math.round(d.focusMins / 30)) : 0), 0);
-  const weekFocusMins = weekElapsedDays.reduce((sum, d) => sum + d.focusMins, 0);
+  const weekRecordedDaysCount = weekElapsedDays.filter(d => d.hasRecordedData).length;
+  const weekRecordedDays = weekElapsedDays.filter(d => d.hasRecordedData);
+  const weekConfirmedPrayers = weekRecordedDays.reduce((sum, d) => sum + d.confirmedPrayers, 0);
+  const weekPossiblePrayers = weekRecordedDaysCount * 5;
+  const weekSocialMins = weekRecordedDays.reduce((sum, d) => sum + d.socialMins, 0);
+  const weekBrowserMins = weekRecordedDays.reduce((sum, d) => sum + d.browserMins, 0);
+  const weekBlockedCount = weekRecordedDays.reduce((sum, d) => sum + d.blockedCount, 0);
+  const weekReminders = weekRecordedDays.reduce((sum, d) => sum + d.remindersCount, 0);
+  const weekIstighfar = weekRecordedDays.reduce((sum, d) => sum + d.istighfarCount, 0);
+  const weekFocusSessions = weekRecordedDays.reduce((sum, d) => sum + d.focusSessions, 0);
+  const weekFocusMins = weekRecordedDays.reduce((sum, d) => sum + d.focusMins, 0);
 
   // Calculate Month Totals (Day 1 to Last Day: 28/29/30/31)
   const monthElapsedDaysCount = monthPeriod.currentDayNum; // 1 to 31
@@ -219,6 +238,7 @@ export function getPeriodAggregatedStats(
   let monthIstighfar = 0;
   let monthFocusSessions = 0;
   let monthFocusMins = 0;
+  let monthRecordedDaysCount = 0;
 
   for (let dayNum = 1; dayNum <= monthElapsedDaysCount; dayNum++) {
     const dayDate = new Date(monthPeriod.year, monthPeriod.monthIndex, dayNum, 12, 0, 0, 0);
@@ -227,8 +247,10 @@ export function getPeriodAggregatedStats(
 
     if (dateStr === dayPeriod.dateStr) {
       record = todayRecord;
+      if (hasTodayMeasurements) monthRecordedDaysCount += 1;
     } else {
       record = history[dateStr] || getEmptyPastDay(dateStr);
+      if (history[dateStr]) monthRecordedDaysCount += 1;
     }
 
     monthConfirmedPrayers += record.confirmedPrayers;
@@ -241,15 +263,9 @@ export function getPeriodAggregatedStats(
     monthFocusMins += record.focusMinutesTotal;
   }
 
-  const monthPossiblePrayers = monthPeriod.totalDays * 5; // e.g. 150 or 155 prayers
+  const monthPossiblePrayers = monthRecordedDaysCount * 5;
 
   // Multi-device distribution
-  const win = syncState.devices.windows;
-  const android = syncState.devices.android;
-  const winTotal = win.stats.totalTimeMinutes || 0;
-  const androidTotal = android.stats.totalTimeMinutes || 0;
-  const totalDev = Math.max(1, winTotal + androidTotal);
-  const winRatio = winTotal / totalDev;
 
   if (periodType === 'today') {
     const totalScreen = todayRecord.socialTimeMinutes + todayRecord.browserTimeMinutes;
@@ -261,8 +277,10 @@ export function getPeriodAggregatedStats(
       title: 'تقرير اليوم (من 12:00 ص إلى 11:59 م)',
       timeRangeLabel: dayPeriod.label,
       badgeLabel: 'اليوم (12:00 ص - 11:59 م)',
+      recordedDaysCount: hasTodayMeasurements ? 1 : 0,
+      elapsedDaysCount: 1,
       confirmedPrayers: todayRecord.confirmedPrayers,
-      totalPossiblePrayers: 5,
+      totalPossiblePrayers: hasTodayMeasurements ? 5 : 0,
       socialTimeMinutes: todayRecord.socialTimeMinutes,
       browserTimeMinutes: todayRecord.browserTimeMinutes,
       totalScreenMinutes: totalScreen,
@@ -272,8 +290,8 @@ export function getPeriodAggregatedStats(
       focusSessionsCount: todayRecord.focusSessionsCount,
       focusMinutesTotal: todayRecord.focusMinutesTotal,
       weekDaysData,
-      windowsScreenMins: Math.round(totalScreen * winRatio),
-      androidScreenMins: Math.round(totalScreen * (1 - winRatio))
+      windowsScreenMins: 0,
+      androidScreenMins: 0
     };
   }
 
@@ -287,6 +305,8 @@ export function getPeriodAggregatedStats(
       title: `تقرير الأسبوع (من السبت ${weekPeriod.startFormatted} حتى الجمعة ${weekPeriod.endFormatted})`,
       timeRangeLabel: weekPeriod.label,
       badgeLabel: `الأسبوع: السبت - الجمعة (${weekPeriod.elapsedDaysCount} من 7 أيام)`,
+      recordedDaysCount: weekRecordedDaysCount,
+      elapsedDaysCount: weekElapsedDays.length,
       confirmedPrayers: weekConfirmedPrayers,
       totalPossiblePrayers: weekPossiblePrayers,
       socialTimeMinutes: weekSocialMins,
@@ -298,8 +318,8 @@ export function getPeriodAggregatedStats(
       focusSessionsCount: weekFocusSessions,
       focusMinutesTotal: weekFocusMins,
       weekDaysData,
-      windowsScreenMins: Math.round(totalScreen * winRatio),
-      androidScreenMins: Math.round(totalScreen * (1 - winRatio))
+      windowsScreenMins: 0,
+      androidScreenMins: 0
     };
   }
 
@@ -313,6 +333,8 @@ export function getPeriodAggregatedStats(
     title: `تقرير شهر ${monthPeriod.monthNameAr} (من يوم 1 حتى ${monthPeriod.totalDays})`,
     timeRangeLabel: monthPeriod.label,
     badgeLabel: `الشهر: 1 - ${monthPeriod.totalDays} ${monthPeriod.monthNameAr} (اليوم ${monthPeriod.currentDayNum})`,
+    recordedDaysCount: monthRecordedDaysCount,
+    elapsedDaysCount: monthElapsedDaysCount,
     confirmedPrayers: monthConfirmedPrayers,
     totalPossiblePrayers: monthPossiblePrayers,
     socialTimeMinutes: monthSocialMins,
@@ -324,8 +346,8 @@ export function getPeriodAggregatedStats(
     focusSessionsCount: monthFocusSessions,
     focusMinutesTotal: monthFocusMins,
     weekDaysData,
-    windowsScreenMins: Math.round(totalScreen * winRatio),
-    androidScreenMins: Math.round(totalScreen * (1 - winRatio))
+    windowsScreenMins: 0,
+    androidScreenMins: 0
   };
 }
 
@@ -335,6 +357,7 @@ export interface DailySummaryItem {
   dayShort: string;
   formattedDate: string;
   isToday: boolean;
+  hasRecordedData: boolean;
   
   // Metrics
   confirmedPrayers: number;
@@ -357,6 +380,8 @@ export interface DailySummaryItem {
 
 export interface WeeklySummaryReport {
   days: DailySummaryItem[];
+  recordedDaysCount: number;
+  elapsedDaysCount: number;
   
   totalConfirmedPrayers: number;
   totalPossiblePrayers: number;
@@ -376,7 +401,7 @@ export interface WeeklySummaryReport {
   
   focusToScreenRatio: number;
   
-  weeklyScore: number;
+  weeklyScore: number | null;
   weeklyGrade: string;
   weeklyBadgeColor: string;
   weeklyAdvice: string;
@@ -394,6 +419,13 @@ export function getRolling7DaysSummary(
   const history = getStoredStatsHistory();
   const todayStr = getLocalFormattedDate();
   const todayConfirmedPrayers = prayers.filter(p => p.id !== 'sunrise' && p.confirmed).length;
+  const hasTodayMeasurements = todayConfirmedPrayers > 0 ||
+    todayStats.browserTimeMinutes > 0 ||
+    todayStats.focusMinutesTotal > 0 ||
+    todayStats.focusSessionsCount > 0 ||
+    todayStats.istighfarCount > 0 ||
+    todayStats.remindersShown > 0 ||
+    blockedAttempts.length > 0;
 
   const days: DailySummaryItem[] = [];
 
@@ -418,41 +450,42 @@ export function getRolling7DaysSummary(
     let blockedCount = 0;
     let istighfar = 0;
     let reminders = 0;
+    const hasRecordedData = Boolean(history[dateStr]) || (isToday && hasTodayMeasurements);
 
     if (isToday) {
       confirmedPrayers = todayConfirmedPrayers;
-      socialMins = todayStats.socialTimeMinutes || 0;
       browserMins = todayStats.browserTimeMinutes || 0;
-      screenMins = socialMins + browserMins;
+      screenMins = browserMins;
       blockedCount = blockedAttempts.length;
       istighfar = todayStats.istighfarCount || 0;
       reminders = todayStats.remindersShown || 0;
       focusMins = todayStats.focusMinutesTotal || 0;
-      focusSessions = todayStats.focusSessionsCount || (focusMins > 0 ? Math.max(1, Math.round(focusMins / 30)) : 0);
+      focusSessions = todayStats.focusSessionsCount || 0;
     } else {
       const record = history[dateStr] || getEmptyPastDay(dateStr);
       confirmedPrayers = Math.min(5, record.confirmedPrayers || 0);
-      socialMins = record.socialTimeMinutes || 0;
       browserMins = record.browserTimeMinutes || 0;
-      screenMins = socialMins + browserMins;
+      screenMins = browserMins;
       blockedCount = record.blockedAttemptsCount || 0;
       istighfar = record.istighfarCount || 0;
       reminders = record.remindersShown || 0;
       focusMins = record.focusMinutesTotal || 0;
-      focusSessions = record.focusSessionsCount || (focusMins > 0 ? Math.max(1, Math.round(focusMins / 30)) : 0);
+      focusSessions = record.focusSessionsCount || 0;
     }
 
-    const prayerPct = Math.round((confirmedPrayers / 5) * 100);
+    const prayerPct = hasRecordedData ? Math.round((confirmedPrayers / 5) * 100) : 0;
 
-    let statusVerdict = 'ثبات والتزام';
-    if (confirmedPrayers === 5 && focusMins >= 45) {
-      statusVerdict = 'يوم نوراني متكامل 🌟';
-    } else if (confirmedPrayers >= 4) {
-      statusVerdict = 'محافظة عالية على الصلاة 🕌';
-    } else if (focusMins >= 60) {
-      statusVerdict = 'تركيز عميق وإنجاز 🎯';
-    } else {
-      statusVerdict = 'ثبات ومجاهدة مستمرة 🛡️';
+    let statusVerdict = hasRecordedData ? 'ثبات والتزام' : 'لا توجد بيانات مسجلة لهذا اليوم';
+    if (hasRecordedData) {
+      if (confirmedPrayers === 5 && focusMins >= 45) {
+        statusVerdict = 'يوم نوراني متكامل 🌟';
+      } else if (confirmedPrayers >= 4) {
+        statusVerdict = 'محافظة عالية على الصلاة 🕌';
+      } else if (focusMins >= 60) {
+        statusVerdict = 'تركيز عميق وإنجاز 🎯';
+      } else {
+        statusVerdict = 'ثبات ومجاهدة مستمرة 🛡️';
+      }
     }
 
     days.push({
@@ -461,6 +494,7 @@ export function getRolling7DaysSummary(
       dayShort,
       formattedDate,
       isToday,
+      hasRecordedData,
       confirmedPrayers,
       totalPrayers: 5,
       prayerPercentage: prayerPct,
@@ -477,39 +511,50 @@ export function getRolling7DaysSummary(
   }
 
   // Aggregate stats
-  const totalConfirmedPrayers = days.reduce((sum, d) => sum + d.confirmedPrayers, 0);
-  const totalPossiblePrayers = 35; // 7 days * 5 prayers
-  const prayerConsistencyPercentage = Math.round((totalConfirmedPrayers / totalPossiblePrayers) * 100);
+  const recordedDays = days.filter(day => day.hasRecordedData);
+  const recordedDaysCount = recordedDays.length;
+  const elapsedDaysCount = days.filter(day => day.isToday || day.dateStr < todayStr).length;
+  const totalConfirmedPrayers = recordedDays.reduce((sum, d) => sum + d.confirmedPrayers, 0);
+  const totalPossiblePrayers = recordedDaysCount * 5;
+  const prayerConsistencyPercentage = totalPossiblePrayers > 0
+    ? Math.round((totalConfirmedPrayers / totalPossiblePrayers) * 100)
+    : 0;
 
-  const totalFocusMinutes = days.reduce((sum, d) => sum + d.focusMinutes, 0);
-  const totalFocusSessions = days.reduce((sum, d) => sum + d.focusSessions, 0);
-  const averageDailyFocusMinutes = Math.round(totalFocusMinutes / 7);
+  const totalFocusMinutes = recordedDays.reduce((sum, d) => sum + d.focusMinutes, 0);
+  const totalFocusSessions = recordedDays.reduce((sum, d) => sum + d.focusSessions, 0);
+  const averageDailyFocusMinutes = recordedDaysCount > 0 ? Math.round(totalFocusMinutes / recordedDaysCount) : 0;
   const focusHours = (totalFocusMinutes / 60).toFixed(1);
   const totalFocusHoursFormatted = `${focusHours} ساعة`;
 
-  const totalScreenTimeMinutes = days.reduce((sum, d) => sum + d.screenTimeMinutes, 0);
+  const totalScreenTimeMinutes = recordedDays.reduce((sum, d) => sum + d.screenTimeMinutes, 0);
   const screenHours = (totalScreenTimeMinutes / 60).toFixed(1);
   const totalScreenTimeHoursFormatted = `${screenHours} ساعة`;
-  const averageDailyScreenMinutes = Math.round(totalScreenTimeMinutes / 7);
+  const averageDailyScreenMinutes = recordedDaysCount > 0 ? Math.round(totalScreenTimeMinutes / recordedDaysCount) : 0;
 
-  const totalBlockedAttempts = days.reduce((sum, d) => sum + d.blockedAttempts, 0);
-  const totalIstighfarCount = days.reduce((sum, d) => sum + d.istighfarCount, 0);
+  const totalBlockedAttempts = recordedDays.reduce((sum, d) => sum + d.blockedAttempts, 0);
+  const totalIstighfarCount = recordedDays.reduce((sum, d) => sum + d.istighfarCount, 0);
 
   const focusToScreenRatio = totalScreenTimeMinutes > 0 
     ? Math.min(100, Math.round((totalFocusMinutes / totalScreenTimeMinutes) * 100))
-    : 100;
+    : 0;
 
   // Spiritual Momentum Calculation (Weighted: 50% Prayers, 30% Focus & Discipline, 20% Istighfar & Protection)
   const prayerFactor = (prayerConsistencyPercentage / 100) * 50;
-  const focusFactor = Math.min(30, (totalFocusMinutes / (7 * 45)) * 30);
-  const istighfarFactor = Math.min(20, (totalIstighfarCount / 70) * 20);
-  const weeklyScore = Math.min(100, Math.round(prayerFactor + focusFactor + istighfarFactor));
+  const focusFactor = Math.min(30, (totalFocusMinutes / Math.max(1, recordedDaysCount * 45)) * 30);
+  const istighfarFactor = Math.min(20, (totalIstighfarCount / Math.max(1, recordedDaysCount * 10)) * 20);
+  const weeklyScore = recordedDaysCount > 0
+    ? Math.min(100, Math.round(prayerFactor + focusFactor + istighfarFactor))
+    : null;
 
   let weeklyGrade = 'ثبات واستقامة استثنائية (ممتاز)';
   let weeklyBadgeColor = 'emerald';
   let weeklyAdvice = 'ما شاء الله تبارك الله! استمرارك على الصلوات الخمس مع جلسات التركيز يبني حصناً منيعاً لقلبك ووعيك.';
 
-  if (weeklyScore < 60) {
+  if (weeklyScore === null) {
+    weeklyGrade = 'لا توجد بيانات مسجلة بعد';
+    weeklyBadgeColor = 'slate';
+    weeklyAdvice = 'ستظهر المؤشرات بعد تسجيل نشاط فعلي في التطبيق.';
+  } else if (weeklyScore < 60) {
     weeklyGrade = 'بحاجة إلى تعزيز الهمة والمواظبة';
     weeklyBadgeColor = 'amber';
     weeklyAdvice = 'اجعل نداء الأذان نقطة انطلاق فورية لصلاتك، وابدأ بجلسة تركيز واحدة يومياً لمدة 25 دقيقة.';
@@ -521,6 +566,8 @@ export function getRolling7DaysSummary(
 
   return {
     days,
+    recordedDaysCount,
+    elapsedDaysCount,
     totalConfirmedPrayers,
     totalPossiblePrayers,
     prayerConsistencyPercentage,
@@ -546,9 +593,10 @@ export interface WeekComparisonItem {
   weekKey: string;
   weekLabel: string;
   dateRangeLabel: string;
+  recordedDaysCount: number;
   confirmedPrayers: number;
   possiblePrayers: number;
-  prayerPercentage: number;
+  prayerPercentage: number | null;
   focusMinutes: number;
   focusHours: number;
   focusHoursFormatted: string;
@@ -558,12 +606,14 @@ export interface WeekComparisonItem {
   screenHoursFormatted: string;
   blockedAttempts: number;
   istighfarCount: number;
-  productivityScore: number;
+  productivityScore: number | null;
 }
 
 export interface MonthlySummaryReport {
   days: DailySummaryItem[];
   weeksComparison: WeekComparisonItem[];
+  recordedDaysCount: number;
+  elapsedDaysCount: number;
   
   totalConfirmedPrayers: number;
   totalPossiblePrayers: number;
@@ -583,13 +633,13 @@ export interface MonthlySummaryReport {
   
   focusToScreenRatio: number;
   
-  monthlyScore: number;
+  monthlyScore: number | null;
   monthlyGrade: string;
   monthlyBadgeColor: string;
   monthlyAdvice: string;
   
-  prayerGrowthVsLastWeek: number;
-  focusGrowthVsLastWeek: number;
+  prayerGrowthVsLastWeek: number | null;
+  focusGrowthVsLastWeek: number | null;
 }
 
 /**
@@ -604,8 +654,14 @@ export function getRolling30DaysMonthlySummary(
   const daysOfWeekAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
   const history = getStoredStatsHistory();
   const todayStr = getLocalFormattedDate();
-  const streakDays = todayStats.streakDays || 1;
   const todayConfirmedPrayers = prayers.filter(p => p.id !== 'sunrise' && p.confirmed).length;
+  const hasTodayMeasurements = todayConfirmedPrayers > 0 ||
+    todayStats.browserTimeMinutes > 0 ||
+    todayStats.focusMinutesTotal > 0 ||
+    todayStats.focusSessionsCount > 0 ||
+    todayStats.istighfarCount > 0 ||
+    todayStats.remindersShown > 0 ||
+    blockedAttempts.length > 0;
 
   const days: DailySummaryItem[] = [];
 
@@ -631,41 +687,42 @@ export function getRolling30DaysMonthlySummary(
     let blockedCount = 0;
     let istighfar = 0;
     let reminders = 0;
+    const hasRecordedData = Boolean(history[dateStr]) || (isToday && hasTodayMeasurements);
 
     if (isToday) {
       confirmedPrayers = todayConfirmedPrayers;
-      socialMins = todayStats.socialTimeMinutes || 0;
       browserMins = todayStats.browserTimeMinutes || 0;
-      screenMins = socialMins + browserMins;
+      screenMins = browserMins;
       blockedCount = blockedAttempts.length;
       istighfar = todayStats.istighfarCount || 0;
       reminders = todayStats.remindersShown || 0;
       focusMins = todayStats.focusMinutesTotal || 0;
-      focusSessions = todayStats.focusSessionsCount || (focusMins > 0 ? Math.max(1, Math.round(focusMins / 30)) : 0);
+      focusSessions = todayStats.focusSessionsCount || 0;
     } else {
       const record = history[dateStr] || getEmptyPastDay(dateStr);
       confirmedPrayers = Math.min(5, record.confirmedPrayers || 0);
-      socialMins = record.socialTimeMinutes || 0;
       browserMins = record.browserTimeMinutes || 0;
-      screenMins = socialMins + browserMins;
+      screenMins = browserMins;
       blockedCount = record.blockedAttemptsCount || 0;
       istighfar = record.istighfarCount || 0;
       reminders = record.remindersShown || 0;
       focusMins = record.focusMinutesTotal || 0;
-      focusSessions = record.focusSessionsCount || (focusMins > 0 ? Math.max(1, Math.round(focusMins / 30)) : 0);
+      focusSessions = record.focusSessionsCount || 0;
     }
 
-    const prayerPct = Math.round((confirmedPrayers / 5) * 100);
+    const prayerPct = hasRecordedData ? Math.round((confirmedPrayers / 5) * 100) : 0;
 
-    let statusVerdict = 'ثبات والتزام';
-    if (confirmedPrayers === 5 && focusMins >= 45) {
-      statusVerdict = 'يوم نوراني متكامل 🌟';
-    } else if (confirmedPrayers >= 4) {
-      statusVerdict = 'محافظة عالية على الصلاة 🕌';
-    } else if (focusMins >= 60) {
-      statusVerdict = 'تركيز عميق وإنجاز 🎯';
-    } else {
-      statusVerdict = 'ثبات ومجاهدة مستمرة 🛡️';
+    let statusVerdict = hasRecordedData ? 'ثبات والتزام' : 'لا توجد بيانات مسجلة لهذا اليوم';
+    if (hasRecordedData) {
+      if (confirmedPrayers === 5 && focusMins >= 45) {
+        statusVerdict = 'يوم نوراني متكامل 🌟';
+      } else if (confirmedPrayers >= 4) {
+        statusVerdict = 'محافظة عالية على الصلاة 🕌';
+      } else if (focusMins >= 60) {
+        statusVerdict = 'تركيز عميق وإنجاز 🎯';
+      } else {
+        statusVerdict = 'ثبات ومجاهدة مستمرة 🛡️';
+      }
     }
 
     days.push({
@@ -674,6 +731,7 @@ export function getRolling30DaysMonthlySummary(
       dayShort,
       formattedDate,
       isToday,
+      hasRecordedData,
       confirmedPrayers,
       totalPrayers: 5,
       prayerPercentage: prayerPct,
@@ -690,27 +748,31 @@ export function getRolling30DaysMonthlySummary(
   }
 
   // Aggregate monthly totals (30 days)
-  const totalConfirmedPrayers = days.reduce((sum, d) => sum + d.confirmedPrayers, 0);
-  const totalPossiblePrayers = 30 * 5; // 150 prayers
-  const prayerConsistencyPercentage = Math.round((totalConfirmedPrayers / totalPossiblePrayers) * 100);
+  const recordedDays = days.filter(day => day.hasRecordedData);
+  const recordedDaysCount = recordedDays.length;
+  const totalConfirmedPrayers = recordedDays.reduce((sum, d) => sum + d.confirmedPrayers, 0);
+  const totalPossiblePrayers = recordedDaysCount * 5;
+  const prayerConsistencyPercentage = totalPossiblePrayers > 0
+    ? Math.round((totalConfirmedPrayers / totalPossiblePrayers) * 100)
+    : 0;
 
-  const totalFocusMinutes = days.reduce((sum, d) => sum + d.focusMinutes, 0);
-  const totalFocusSessions = days.reduce((sum, d) => sum + d.focusSessions, 0);
-  const averageDailyFocusMinutes = Math.round(totalFocusMinutes / 30);
+  const totalFocusMinutes = recordedDays.reduce((sum, d) => sum + d.focusMinutes, 0);
+  const totalFocusSessions = recordedDays.reduce((sum, d) => sum + d.focusSessions, 0);
+  const averageDailyFocusMinutes = recordedDaysCount > 0 ? Math.round(totalFocusMinutes / recordedDaysCount) : 0;
   const focusHours = (totalFocusMinutes / 60).toFixed(1);
   const totalFocusHoursFormatted = `${focusHours} ساعة`;
 
-  const totalScreenTimeMinutes = days.reduce((sum, d) => sum + d.screenTimeMinutes, 0);
+  const totalScreenTimeMinutes = recordedDays.reduce((sum, d) => sum + d.screenTimeMinutes, 0);
   const screenHours = (totalScreenTimeMinutes / 60).toFixed(1);
   const totalScreenTimeHoursFormatted = `${screenHours} ساعة`;
-  const averageDailyScreenMinutes = Math.round(totalScreenTimeMinutes / 30);
+  const averageDailyScreenMinutes = recordedDaysCount > 0 ? Math.round(totalScreenTimeMinutes / recordedDaysCount) : 0;
 
-  const totalBlockedAttempts = days.reduce((sum, d) => sum + d.blockedAttempts, 0);
-  const totalIstighfarCount = days.reduce((sum, d) => sum + d.istighfarCount, 0);
+  const totalBlockedAttempts = recordedDays.reduce((sum, d) => sum + d.blockedAttempts, 0);
+  const totalIstighfarCount = recordedDays.reduce((sum, d) => sum + d.istighfarCount, 0);
 
   const focusToScreenRatio = totalScreenTimeMinutes > 0 
     ? Math.min(100, Math.round((totalFocusMinutes / totalScreenTimeMinutes) * 100))
-    : 100;
+    : 0;
 
   // Split into 4 distinct weeks for multi-week comparison
   // Week 1 (oldest): days[0..6] (7 days)
@@ -726,34 +788,36 @@ export function getRolling30DaysMonthlySummary(
 
   const weeksComparison: WeekComparisonItem[] = weekChunks.map((chunk, index) => {
     const chunkDays = chunk.slice;
-    const count = chunkDays.length;
-    const confirmed = chunkDays.reduce((sum, d) => sum + d.confirmedPrayers, 0);
+    const recordedChunkDays = chunkDays.filter(day => day.hasRecordedData);
+    const count = recordedChunkDays.length;
+    const confirmed = recordedChunkDays.reduce((sum, d) => sum + d.confirmedPrayers, 0);
     const possible = count * 5;
-    const prayerPct = Math.round((confirmed / possible) * 100);
-    const focusM = chunkDays.reduce((sum, d) => sum + d.focusMinutes, 0);
+    const prayerPct = count > 0 ? Math.round((confirmed / possible) * 100) : null;
+    const focusM = recordedChunkDays.reduce((sum, d) => sum + d.focusMinutes, 0);
     const focusH = Number((focusM / 60).toFixed(1));
-    const focusSess = chunkDays.reduce((sum, d) => sum + d.focusSessions, 0);
-    const screenM = chunkDays.reduce((sum, d) => sum + d.screenTimeMinutes, 0);
+    const focusSess = recordedChunkDays.reduce((sum, d) => sum + d.focusSessions, 0);
+    const screenM = recordedChunkDays.reduce((sum, d) => sum + d.screenTimeMinutes, 0);
     const screenH = Number((screenM / 60).toFixed(1));
-    const blocked = chunkDays.reduce((sum, d) => sum + d.blockedAttempts, 0);
-    const istighfar = chunkDays.reduce((sum, d) => sum + d.istighfarCount, 0);
+    const blocked = recordedChunkDays.reduce((sum, d) => sum + d.blockedAttempts, 0);
+    const istighfar = recordedChunkDays.reduce((sum, d) => sum + d.istighfarCount, 0);
 
     const firstDate = chunkDays[0]?.formattedDate || '';
-    const lastDate = chunkDays[count - 1]?.formattedDate || '';
+    const lastDate = recordedChunkDays[recordedChunkDays.length - 1]?.formattedDate || '';
     const dateRangeLabel = `${firstDate} - ${lastDate}`;
 
     // Productivity score (0-100)
-    const pScore = Math.min(100, Math.round(
+    const pScore = count > 0 ? Math.min(100, Math.round(
       (prayerPct * 0.45) + 
-      (Math.min(35, (focusM / (count * 45)) * 35)) + 
-      (Math.min(20, (istighfar / (count * 10)) * 20))
-    ));
+      (Math.min(35, (focusM / Math.max(1, count * 45)) * 35)) +
+      (Math.min(20, (istighfar / Math.max(1, count * 10)) * 20))
+    )) : null;
 
     return {
       weekIndex: index + 1,
       weekKey: chunk.key,
       weekLabel: chunk.label,
       dateRangeLabel,
+      recordedDaysCount: count,
       confirmedPrayers: confirmed,
       possiblePrayers: possible,
       prayerPercentage: prayerPct,
@@ -773,22 +837,30 @@ export function getRolling30DaysMonthlySummary(
   // Calculate Growth Trends between Week 3 and Week 4
   const w3 = weeksComparison[2];
   const w4 = weeksComparison[3];
-  const prayerGrowthVsLastWeek = w3 ? w4.prayerPercentage - w3.prayerPercentage : 0;
-  const focusGrowthVsLastWeek = w3 && w3.focusHours > 0 
+  const prayerGrowthVsLastWeek = w3 && w3.recordedDaysCount > 0 && w4.recordedDaysCount > 0
+    ? w4.prayerPercentage - w3.prayerPercentage
+    : null;
+  const focusGrowthVsLastWeek = w3 && w3.recordedDaysCount > 0 && w4.recordedDaysCount > 0 && w3.focusHours > 0
     ? Math.round(((w4.focusHours - w3.focusHours) / w3.focusHours) * 100)
-    : 0;
+    : null;
 
   // Monthly Score
   const prayerFactor = (prayerConsistencyPercentage / 100) * 50;
-  const focusFactor = Math.min(30, (totalFocusMinutes / (30 * 45)) * 30);
-  const istighfarFactor = Math.min(20, (totalIstighfarCount / 300) * 20);
-  const monthlyScore = Math.min(100, Math.round(prayerFactor + focusFactor + istighfarFactor));
+  const focusFactor = Math.min(30, (totalFocusMinutes / Math.max(1, recordedDaysCount * 45)) * 30);
+  const istighfarFactor = Math.min(20, (totalIstighfarCount / Math.max(1, recordedDaysCount * 10)) * 20);
+  const monthlyScore = recordedDaysCount > 0
+    ? Math.min(100, Math.round(prayerFactor + focusFactor + istighfarFactor))
+    : null;
 
   let monthlyGrade = 'حصن إيماني راسخ (ممتاز جداً)';
   let monthlyBadgeColor = 'emerald';
   let monthlyAdvice = 'ثباتك الشهري المتين على مدار 30 يوماً يعكس نضجاً روحياً رائعاً. استمر على هذا المنهاج وبارك الله في وقتك.';
 
-  if (monthlyScore < 60) {
+  if (monthlyScore === null) {
+    monthlyGrade = 'لا توجد بيانات مسجلة بعد';
+    monthlyBadgeColor = 'slate';
+    monthlyAdvice = 'ستظهر المؤشرات بعد تسجيل نشاط فعلي في التطبيق.';
+  } else if (monthlyScore < 60) {
     monthlyGrade = 'تحديات شهرية تستدعي تجديد العزيمة';
     monthlyBadgeColor = 'amber';
     monthlyAdvice = 'الشهر مضى بدروس قيمة، ابدأ الشهر الجديد بجدول صارم للصلوات وجلسة تركيز واحدة يومياً صباحاً.';
@@ -801,6 +873,8 @@ export function getRolling30DaysMonthlySummary(
   return {
     days,
     weeksComparison,
+    recordedDaysCount,
+    elapsedDaysCount: days.length,
     totalConfirmedPrayers,
     totalPossiblePrayers,
     prayerConsistencyPercentage,
@@ -837,6 +911,7 @@ export interface HeatmapDayCell {
   activityScore: number;
   intensityLevel: 0 | 1 | 2 | 3 | 4;
   isToday: boolean;
+  hasRecordedData: boolean;
   isFuture: boolean;
   isOutsideYear?: boolean;
   statusLabel: string;
@@ -883,8 +958,13 @@ export function getYearlyActivityHeatmap(
 
   const history = getStoredStatsHistory();
   const todayStr = getLocalFormattedDate();
-  const streakDays = todayStats.streakDays || 1;
   const todayConfirmedPrayers = prayers.filter(p => p.id !== 'sunrise' && p.confirmed).length;
+  const hasTodayMeasurements = todayConfirmedPrayers > 0 ||
+    todayStats.browserTimeMinutes > 0 ||
+    todayStats.focusMinutesTotal > 0 ||
+    todayStats.focusSessionsCount > 0 ||
+    todayStats.istighfarCount > 0 ||
+    todayStats.remindersShown > 0;
 
   const today = new Date();
   const currentYear = targetYear || today.getFullYear();
@@ -964,6 +1044,7 @@ export function getYearlyActivityHeatmap(
           activityScore: 0,
           intensityLevel: 0,
           isToday: false,
+          hasRecordedData: false,
           isFuture: false,
           isOutsideYear: true,
           statusLabel: 'خارج السنة الحالية'
@@ -986,9 +1067,35 @@ export function getYearlyActivityHeatmap(
           activityScore: 0,
           intensityLevel: 0,
           isToday: false,
+          hasRecordedData: false,
           isFuture: true,
           isOutsideYear: false,
           statusLabel: 'يوم قادم في العام'
+        });
+        continue;
+      }
+
+      const hasRecordedData = (isToday && hasTodayMeasurements) || Boolean(history[dateStr]);
+      if (!hasRecordedData) {
+        runningStreak = 0;
+        weekCol.push({
+          dateStr,
+          formattedDate: `${dd} ${monthName}`,
+          dayIndexInWeek: dayIdx,
+          dayName: dayLabels[dayIdx],
+          monthName,
+          monthIndex,
+          confirmedPrayers: 0,
+          istighfarCount: 0,
+          focusMinutes: 0,
+          blockedAttempts: 0,
+          activityScore: 0,
+          intensityLevel: 0,
+          isToday: false,
+          hasRecordedData: false,
+          isFuture: false,
+          isOutsideYear: false,
+          statusLabel: 'لا توجد بيانات مسجلة لهذا اليوم'
         });
         continue;
       }
@@ -1092,6 +1199,7 @@ export function getYearlyActivityHeatmap(
         activityScore: score,
         intensityLevel: intensity,
         isToday,
+        hasRecordedData: true,
         isFuture: false,
         isOutsideYear: false,
         statusLabel
@@ -1101,11 +1209,11 @@ export function getYearlyActivityHeatmap(
     weeks.push(weekCol);
   }
 
-  currentStreakCounter = streakDays || runningStreak || 1;
-  const longestStreak = Math.max(maxStreakCounter, currentStreakCounter, streakDays);
+  currentStreakCounter = runningStreak;
+  const longestStreak = maxStreakCounter;
   const prayerAdherencePercentage = totalEvaluatedDays > 0 
     ? Math.round((totalYearlyPrayers / (totalEvaluatedDays * 5)) * 100) 
-    : 100;
+    : 0;
   const totalHours = (totalYearlyFocusMinutes / 60).toFixed(1);
 
   return {

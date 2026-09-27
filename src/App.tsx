@@ -39,6 +39,7 @@ import {
 import { sounds } from './utils/audio';
 import { syncAthkarSettingsToServer } from './utils/pushNotificationService';
 import { advanceKhatmah } from './services/quranService';
+import { recordStatsForDay } from './services/periodStatsService';
 
 import { saveWuduReminder, savePrayerLog } from './services/prayerLogService';
 
@@ -84,7 +85,7 @@ import { downloadSpiritualReport, ReportPeriodType } from './utils/reportExport'
 import { BellRing, Copy, X, Bell } from 'lucide-react';
 
 function MainApp() {
-  const { isGuest } = useAuth();
+  const { user, isGuest } = useAuth();
 
   // Navigation
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
@@ -177,9 +178,17 @@ function MainApp() {
 
 
   // Daily Stats
-  const [dailyStats, setDailyStats] = useState<DailyStats>(() => 
-    loadStored<DailyStats>(STORAGE_KEYS.STATS, INITIAL_DAILY_STATS)
-  );
+  const [dailyStats, setDailyStats] = useState<DailyStats>(() => {
+    const stored = loadStored<DailyStats>(STORAGE_KEYS.STATS, INITIAL_DAILY_STATS);
+    if (!loadStored<boolean>('raqeeb_verified_metrics_migration_v2', false)) {
+      stored.browserTimeMinutes = 0;
+      stored.socialTimeMinutes = 0;
+      delete stored.streakDays;
+      saveStored(STORAGE_KEYS.STATS, stored);
+      saveStored('raqeeb_verified_metrics_migration_v2', true);
+    }
+    return stored;
+  });
 
   // Blocked Attempts Log
   // Load and sanitize blocked attempts to ensure privacy
@@ -216,15 +225,7 @@ function MainApp() {
       if (urlCode && /^RQ-[A-Za-z0-9_\-]{4,32}$/i.test(urlCode.trim())) {
         return {
           ...stored,
-          pairingCode: urlCode.trim().toUpperCase(),
-          devices: {
-            ...stored.devices,
-            android: {
-              ...stored.devices.android,
-              status: 'connected',
-              lastSyncTime: 'متصل سحابياً الآن'
-            }
-          }
+          pairingCode: urlCode.trim().toUpperCase()
         };
       }
     }
@@ -420,19 +421,10 @@ function MainApp() {
       return updated;
     });
 
-    setDailyStats(prev => {
-      const updated = {
-        ...prev,
-        istighfarCount: prev.istighfarCount + 10,
-        streakDays: Math.max(prev.streakDays || 1, 1)
-      };
-      saveStored(STORAGE_KEYS.STATS, updated);
-      return updated;
-    });
   };
 
   const handleExportReport = (period: ReportPeriodType = 'today') => {
-    downloadSpiritualReport(period, dailyStats, prayers, victories, dailyStats.streakDays || 1, syncState, blockedAttempts);
+    downloadSpiritualReport(period, dailyStats, prayers, victories, dailyStats.streakDays || 0, syncState, blockedAttempts);
   };
 
   // PWA Install State
@@ -495,7 +487,8 @@ function MainApp() {
         handleTogglePrayer(matching.id);
       }
     },
-    !isGuest
+    !isGuest,
+    user?.uid ?? null
   );
 
   // Cloud Sync
@@ -529,7 +522,7 @@ function MainApp() {
           // It's a new day! Handle streak calculation
           // If all prayers were confirmed yesterday (or 5 prayers), they keep the streak
           const earnedStreak = prev.confirmedPrayers >= 5;
-          const newStreak = earnedStreak ? (prev.streakDays || 0) + 1 : 1;
+          const newStreak = earnedStreak ? (prev.streakDays || 0) + 1 : 0;
           
           return {
             ...INITIAL_DAILY_STATS,
@@ -568,31 +561,12 @@ function MainApp() {
         setNightShieldDismissed(false);
       }
 
+      if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+
       setDailyStats(prev => ({
         ...prev,
         browserTimeMinutes: (prev.browserTimeMinutes || 0) + 1
       }));
-      setSyncState(prev => ({
-        ...prev,
-        devices: {
-          ...prev.devices,
-          windows: {
-            ...prev.devices.windows,
-            stats: {
-              ...prev.devices.windows.stats,
-              browserTimeMinutes: (prev.devices.windows.stats.browserTimeMinutes || 0) + 1,
-              totalTimeMinutes: (prev.devices.windows.stats.totalTimeMinutes || 0) + 1
-            }
-          }
-        }
-      }));
-
-      // Phase 5: Smart Sync & Batch Writes
-      // Push state to Firebase only once every 5 minutes
-      if ((syncStateRef.current.devices.windows.stats.browserTimeMinutes || 0) % 5 === 0 && syncStateRef.current.autoSync) {
-        pushToCloud(syncStateRef.current);
-      }
-
     }, 60000);
 
     // Initial check
@@ -831,6 +805,18 @@ function MainApp() {
   useEffect(() => {
     saveStored(STORAGE_KEYS.STATS, dailyStats);
   }, [dailyStats]);
+
+  useEffect(() => {
+    recordStatsForDay(getLocalFormattedDate(), {
+      confirmedPrayers: prayers.filter(prayer => prayer.id !== 'sunrise' && prayer.confirmed).length,
+      browserTimeMinutes: dailyStats.browserTimeMinutes || 0,
+      blockedAttemptsCount: blockedAttempts.length,
+      remindersShown: dailyStats.remindersShown || 0,
+      istighfarCount: dailyStats.istighfarCount || 0,
+      focusSessionsCount: dailyStats.focusSessionsCount || 0,
+      focusMinutesTotal: dailyStats.focusMinutesTotal || 0
+    });
+  }, [dailyStats, prayers, blockedAttempts]);
 
   useEffect(() => {
     saveStored(STORAGE_KEYS.BLOCKED_LOGS, blockedAttempts);
@@ -1101,7 +1087,7 @@ function MainApp() {
               setDailyStats(prev => ({
                 ...prev,
                 quranPagesRead: (prev.quranPagesRead || 0) + 20,
-                streakDays: Math.max(prev.streakDays || 1, 1)
+                streakDays: Math.max(prev.streakDays || 0, 1)
               }));
             }}
             victories={victories}

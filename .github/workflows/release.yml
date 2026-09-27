@@ -17,7 +17,15 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
       - run: npm ci
+      - run: npm run test:firestore-rules
+      - run: npm run test:anti-fake
+      - run: npm run test:extension
+      - run: npm run test:analytics-data
       - run: npm run lint
       - run: npm run build
       - run: npm run package:extension
@@ -87,6 +95,7 @@ jobs:
           test -s "$apk"
           sdk_path="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
           apksigner=''
+          apkanalyzer=''
           if command -v apksigner >/dev/null 2>&1; then
             apksigner="$(command -v apksigner)"
           elif [[ -n "$sdk_path" && -d "$sdk_path/build-tools" ]]; then
@@ -95,8 +104,22 @@ jobs:
           if [[ -n "$apksigner" ]]; then
             "$apksigner" verify --verbose --print-certs "$apk"
           else
-            echo "::warning::apksigner is unavailable; APK signature could not be independently verified."
+            echo "::error::apksigner is unavailable; refusing to publish an unverified APK."
+            exit 1
           fi
+          if command -v apkanalyzer >/dev/null 2>&1; then
+            apkanalyzer="$(command -v apkanalyzer)"
+          elif [[ -n "$sdk_path" && -d "$sdk_path/cmdline-tools" ]]; then
+            apkanalyzer="$(find "$sdk_path/cmdline-tools" -type f -name apkanalyzer -print | head -n 1)"
+          fi
+          if [[ -z "$apkanalyzer" ]]; then
+            echo "::error::apkanalyzer is unavailable; APK metadata could not be verified."
+            exit 1
+          fi
+          [[ "$("$apkanalyzer" manifest application-id "$apk")" == "com.raqeeb.app" ]]
+          [[ "$("$apkanalyzer" manifest version-name "$apk")" == "1.0.0" ]]
+          [[ "$("$apkanalyzer" manifest version-code "$apk")" == "1" ]]
+          [[ "$(stat -c '%s' "$apk")" -gt 100000 ]]
           mkdir -p public/downloads
           cp "$apk" public/downloads/Raqeeb.apk
           test -s public/downloads/Raqeeb.apk
@@ -130,7 +153,19 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force public/downloads | Out-Null
           Copy-Item windows-native/publish/RaqeebProtector.exe public/downloads/Raqeeb-Setup.exe
-          if ((Get-Item public/downloads/Raqeeb-Setup.exe).Length -le 0) { throw 'The Windows executable was not published.' }
+          $path = (Resolve-Path public/downloads/Raqeeb-Setup.exe).Path
+          $bytes = [IO.File]::ReadAllBytes($path)
+          if ($bytes.Length -lt 5MB) { throw 'The Windows executable is unexpectedly small.' }
+          if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'The Windows executable has no DOS header.' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($peOffset -lt 0 -or $peOffset + 6 -gt $bytes.Length) { throw 'The Windows PE header offset is invalid.' }
+          if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw 'The Windows PE signature is invalid.' }
+          if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw 'The Windows executable is not x64.' }
+          if (-not (Test-Path windows-native/RaqeebProtector/wwwroot-assets.zip)) { throw 'The embedded WebView2 site archive is missing.' }
+          if (-not (Test-Path windows-native/RaqeebProtector/blocked-domains.txt)) { throw 'The embedded blocklist resource is missing.' }
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+          if ($null -eq $icon -or $icon.Width -lt 16 -or $icon.Height -lt 16) { throw 'The Windows executable does not contain a usable application icon.' }
+          $icon.Dispose()
       - uses: actions/upload-artifact@v4
         with:
           name: windows-protector
@@ -151,6 +186,11 @@ jobs:
           test -s release/Raqeeb.apk
           test -s release/Raqeeb-Setup.exe
           test -s release/public/downloads/Raqeeb-Extension.zip
+          cp release/public/downloads/Raqeeb-Extension.zip release/Raqeeb-Extension.zip
+          (cd release && sha256sum Raqeeb.apk > Raqeeb.apk.sha256)
+          (cd release && sha256sum Raqeeb-Setup.exe > Raqeeb-Setup.exe.sha256)
+          (cd release && sha256sum Raqeeb-Extension.zip > Raqeeb-Extension.zip.sha256)
+          (cd release && sha256sum --check Raqeeb.apk.sha256 Raqeeb-Setup.exe.sha256 Raqeeb-Extension.zip.sha256)
       - uses: actions/upload-artifact@v4
         with:
           name: Raqeeb-release-bundle
@@ -159,5 +199,8 @@ jobs:
         with:
           files: |
             release/Raqeeb.apk
+            release/Raqeeb.apk.sha256
             release/Raqeeb-Setup.exe
-            release/public/downloads/Raqeeb-Extension.zip
+            release/Raqeeb-Setup.exe.sha256
+            release/Raqeeb-Extension.zip
+            release/Raqeeb-Extension.zip.sha256

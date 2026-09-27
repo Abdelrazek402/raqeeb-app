@@ -23,6 +23,17 @@ internal static class Program
 internal sealed class ProtectorApplication : ApplicationContext
 {
     private const string Marker = "# Raqeeb managed blocklist";
+    private static readonly HashSet<string> BrowserExecutables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "brave",
+        "chrome",
+        "firefox",
+        "iexplore",
+        "msedge",
+        "opera",
+        "vivaldi"
+    };
+    private readonly Icon applicationIcon;
     private readonly NotifyIcon tray;
     private readonly MainWindow window;
     private readonly System.Windows.Forms.Timer monitorTimer;
@@ -34,9 +45,11 @@ internal sealed class ProtectorApplication : ApplicationContext
 
     public ProtectorApplication()
     {
+        applicationIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath)
+            ?? throw new InvalidOperationException("The Raqeeb application icon is missing from this executable.");
         tray = new NotifyIcon
         {
-            Icon = SystemIcons.Shield,
+            Icon = applicationIcon,
             Visible = true,
             Text = "Raqeeb Protector"
         };
@@ -214,7 +227,7 @@ internal sealed class ProtectorApplication : ApplicationContext
     {
         if (!focusEnabled) return;
         var hwnd = NativeMethods.GetForegroundWindow();
-        if (hwnd == IntPtr.Zero) return;
+        if (hwnd == IntPtr.Zero || !IsBrowserWindow(hwnd)) return;
         var title = new StringBuilder(512);
         NativeMethods.GetWindowText(hwnd, title, title.Capacity);
         var text = title.ToString();
@@ -225,12 +238,33 @@ internal sealed class ProtectorApplication : ApplicationContext
         }
     }
 
+    private static bool IsBrowserWindow(IntPtr hwnd)
+    {
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var processId);
+        if (processId == 0) return false;
+
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            var executablePath = process.MainModule?.FileName;
+            return executablePath is not null &&
+                BrowserExecutables.Contains(Path.GetFileNameWithoutExtension(executablePath));
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            Trace.TraceWarning($"Could not inspect foreground process {processId}: {exception.Message}");
+            return false;
+        }
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
             monitorTimer.Dispose();
             tray.Visible = false;
+            applicationIcon.Dispose();
             tray.Dispose();
             window.Dispose();
         }
@@ -241,6 +275,7 @@ internal sealed class ProtectorApplication : ApplicationContext
     {
         internal const int SW_MINIMIZE = 6;
         [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
         [DllImport("user32.dll")] internal static extern bool ShowWindow(IntPtr hWnd, int command);
     }
@@ -256,7 +291,8 @@ internal sealed class MainWindow : Form
     public MainWindow()
     {
         Text = "رَقِيب - الرفيق الرقمي الواعي";
-        Icon = SystemIcons.Shield;
+        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath)
+            ?? throw new InvalidOperationException("The Raqeeb application icon is missing from this executable.");
         BackColor = Color.FromArgb(15, 23, 42);
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1024, 700);

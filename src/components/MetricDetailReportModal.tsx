@@ -29,7 +29,8 @@ import {
 import { DailyStats, PrayerInfo, BlockedAttempt, IntentionLog, DeviceSyncHubState, VictoryLog } from '../types';
 import { formatTimeArabic } from '../utils/prayerTimes';
 import { calculatePeriodMoonProgress } from '../services/streakService';
-import { getPeriodAggregatedStats } from '../services/periodStatsService';
+import { getPeriodAggregatedStats, getStoredStatsHistory } from '../services/periodStatsService';
+import { getLocalFormattedDate } from '../utils/dateUtils';
 import { downloadMetricDetailReport } from '../utils/reportExport';
 import { RealisticMoonPhase } from './RealisticMoonPhase';
 
@@ -77,15 +78,15 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
   // - Week: Saturday to Friday (7 days)
   // - Month: 1st to 31st (or 28/29/30)
   const periodData = getPeriodAggregatedStats(timeRange, stats, syncState, prayers, blockedAttempts);
+  const statsHistory = getStoredStatsHistory();
   
-  const streakDays = stats.streakDays || 1;
+  const streakDays = stats.streakDays || 0;
   const streakInfo = calculatePeriodMoonProgress(timeRange, periodData.confirmedPrayers, streakDays);
   
   const { weekPeriod, monthPeriod, dayPeriod, weekDaysData } = periodData;
 
   const rangeConfirmedPrayers = periodData.confirmedPrayers;
   const totalPossiblePrayers = periodData.totalPossiblePrayers;
-  const rangeSocialMins = periodData.socialTimeMinutes;
   const rangeBrowserMins = periodData.browserTimeMinutes;
   const rangeBlockedCount = periodData.blockedAttemptsCount;
   const rangeReminders = periodData.remindersShown;
@@ -116,8 +117,8 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
       iconColor: 'text-teal-600'
     },
     social: {
-      title: 'تقرير استهلاك برامج التواصل الاجتماعي',
-      subtitle: 'توزيع الوقت عبر تطبيقات الهاتف والكمبيوتر ورصد فترات الذروة',
+      title: 'قياس وقت تطبيقات التواصل',
+      subtitle: 'هذا القياس غير متاح حالياً في لوحة الويب',
       icon: Smartphone,
       color: 'blue',
       accentBg: 'bg-blue-50',
@@ -126,8 +127,8 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
       iconColor: 'text-blue-600'
     },
     browser: {
-      title: 'تقرير وقت المتصفحات والتصفح الآمن',
-      subtitle: 'تحليل شامل لساعات تصفح الويب، المواقع المفيدة، والنوايا المعلنة',
+      title: 'نشاط تبويب رقيب',
+      subtitle: 'مدة ظهور هذا التبويب ونشاطه فقط، وليست قياساً لإجمالي استخدام المتصفح',
       icon: Globe,
       color: 'cyan',
       accentBg: 'bg-cyan-50',
@@ -208,6 +209,9 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
               </h2>
               <p className="text-xs text-slate-600 mt-0.5 hidden sm:block">
                 {reportMeta.subtitle}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">
+                السجل متوفر لـ {periodData.recordedDaysCount} من {periodData.elapsedDaysCount} يوماً منقضياً؛ الأيام بلا سجل ليست صفراً مقاساً.
               </p>
             </div>
           </div>
@@ -305,7 +309,7 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
 
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
                   <div className="flex items-center justify-between text-slate-500 text-xs font-semibold mb-1">
-                    <span>نسبة تعافي الدماغ (Neuroplasticity)</span>
+                    <span>تقدم سلسلة الأيام</span>
                     <Sparkles className="w-4 h-4 text-emerald-500" />
                   </div>
                   <div className="text-2xl font-bold font-mono text-emerald-600">
@@ -318,7 +322,7 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
                     />
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    مستهدف التعافي الذهني الشامل: 90 يوماً
+                    نسبة من هدف شخصي مدته 90 يوماً؛ ليست مقياساً طبياً.
                   </p>
                 </div>
 
@@ -328,7 +332,7 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
                     <Award className="w-4 h-4 text-amber-500" />
                   </div>
                   <div className="text-2xl font-bold font-mono text-slate-900">
-                    {victories.length || streakDays * 3} <span className="text-xs text-slate-500 font-normal">انتصاراً</span>
+                    {victories.length} <span className="text-xs text-slate-500 font-normal">انتصاراً مسجلاً</span>
                   </div>
                   <p className="text-[11px] text-teal-700 font-medium mt-2">
                     🛡️ مواقف تجاوزت فيها التشتت بنجاح
@@ -343,28 +347,36 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
                     <Calendar className="w-4 h-4 text-teal-600" />
                     خريطة الثبات اليومية (الـ 30 يوماً الأخيرة)
                   </h4>
-                  <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                    مستمر بفضل الله
+                  <span className="text-xs text-slate-600 font-bold bg-slate-50 px-2.5 py-0.5 rounded-full border border-slate-200">
+                    بيانات مسجلة فقط
                   </span>
                 </div>
 
                 <div className="grid grid-cols-7 gap-2 pt-2">
                   {Array.from({ length: 28 }).map((_, idx) => {
-                    const dayNum = 28 - idx;
-                    const isSuccess = dayNum <= streakDays;
+                    const date = new Date();
+                    date.setDate(date.getDate() - (27 - idx));
+                    const dateStr = getLocalFormattedDate(date);
+                    const isToday = dateStr === dayPeriod.dateStr;
+                    const record = statsHistory[dateStr];
+                    const hasRecord = isToday || Boolean(record);
+                    const confirmedPrayers = isToday
+                      ? confirmedCount
+                      : record?.confirmedPrayers || 0;
+                    const isSuccess = hasRecord && confirmedPrayers === 5;
                     return (
                       <div 
                         key={idx}
                         className={`aspect-square rounded-xl flex flex-col items-center justify-center p-1 text-center transition-all ${
                           isSuccess 
                             ? 'bg-emerald-500 text-white font-bold shadow-2xs' 
-                            : 'bg-slate-100 text-slate-400'
+                            : hasRecord ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-400'
                         }`}
-                        title={`اليوم ${dayNum}: ${isSuccess ? 'ثبات ونقاء' : 'قيد البناء'}`}
+                        title={`${dateStr}: ${hasRecord ? `${confirmedPrayers}/5 صلوات مؤكدة` : 'لا يوجد سجل لهذا اليوم'}`}
                       >
-                        <span className="text-[10px] opacity-80">يوم</span>
-                        <span className="text-xs font-mono font-bold">{dayNum}</span>
-                        {isSuccess && <span className="text-[9px]">✨</span>}
+                        <span className="text-[10px] opacity-80">{hasRecord ? `${confirmedPrayers}/5` : '—'}</span>
+                        <span className="text-xs font-mono font-bold">{date.getDate()}</span>
+                        {isToday && <span className="text-[9px]">اليوم</span>}
                       </div>
                     );
                   })}
@@ -529,127 +541,12 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
           {/* 3. SOCIAL MEDIA REPORT (السوشيال ميديا) */}
           {/* ---------------------------------------------------- */}
           {type === 'social' && (
-            <div className="space-y-6">
-              {/* Summary KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-blue-600 text-white p-4 rounded-2xl border border-blue-700">
-                  <span className="text-xs text-blue-100 block font-semibold mb-1">
-                    وقت السوشيال ميديا ({timeRange === 'today' ? 'اليوم' : timeRange === 'week' ? 'الأسبوع' : 'الشهر'})
-                  </span>
-                  <div className="text-3xl font-extrabold font-mono">
-                    {rangeSocialMins} <span className="text-xs font-normal text-blue-200">دقيقة</span>
-                  </div>
-                  <p className="text-xs text-blue-100 mt-2 font-mono">
-                    {(rangeSocialMins / 60).toFixed(1)} ساعة إجمالية
-                  </p>
-                </div>
-
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-xs text-slate-500 block font-semibold mb-1">توزيع الأجهزة</span>
-                  <div className="text-sm font-bold text-slate-800 space-y-1 mt-1">
-                    <div className="flex justify-between">
-                      <span>💻 الكمبيوتر:</span>
-                      <span className="font-mono text-teal-700">{periodData.windowsScreenMins}د</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>📱 الموبايل:</span>
-                      <span className="font-mono text-blue-700">{periodData.androidScreenMins}د</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-xs text-slate-500 block font-semibold mb-1">حالة الحد الآمن</span>
-                  <div className="text-2xl font-bold font-mono text-emerald-600">
-                    {rangeSocialMins > (timeRange === 'today' ? 120 : timeRange === 'week' ? 840 : 3600) ? 'تجاوز طفيف ⚠️' : 'ضمن الحدود الآمنة ✅'}
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-2">
-                    المعدل اليومي: {Math.round(rangeSocialMins / (timeRange === 'today' ? 1 : timeRange === 'week' ? weekPeriod.elapsedDaysCount : monthPeriod.currentDayNum))} دقيقة/يوم
-                  </p>
-                </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-amber-950">
+              <h3 className="font-bold mb-2">غير مقاس</h3>
+              <p className="text-sm leading-relaxed">
+                لوحة الويب لا تجمع وقت استخدام تطبيقات التواصل ولا تصنفه حسب التطبيق؛ لذلك لا تعرض أصفاراً أو حدوداً آمنة مضللة. يتوفر ملخص UsageStats على جهاز Android نفسه عند منح إذن بيانات الاستخدام، لكن مزامنته إلى هذه اللوحة لم تُنفذ بعد.
+              </p>
               </div>
-
-              {/* Weekly Social Breakdown Chart: Saturday to Friday */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-blue-600" />
-                    استهلاك السوشيال عبر أيام الأسبوع (السبت ⬅ الجمعة)
-                  </h4>
-                  <span className="text-xs text-slate-500 font-mono">بالدقائق</span>
-                </div>
-
-                <div className="grid grid-cols-7 gap-2 items-end h-36 pt-4">
-                  {weekDaysData.map((d) => {
-                    const maxMins = Math.max(...weekDaysData.map(w => w.socialMins), 60);
-                    const pct = Math.min(100, Math.round((d.socialMins / maxMins) * 100));
-                    return (
-                      <div key={d.dayIndex} className="flex flex-col items-center gap-1.5 h-full justify-end">
-                        <span className="text-[10px] font-mono font-bold text-slate-600">
-                          {d.isFuture ? '-' : `${d.socialMins}د`}
-                        </span>
-                        <div className={`w-full rounded-t-lg h-24 relative overflow-hidden ${
-                          d.isToday ? 'bg-blue-100 ring-2 ring-blue-500/50' : 'bg-slate-100'
-                        }`}>
-                          {!d.isFuture && (
-                            <div 
-                              className={`w-full absolute bottom-0 transition-all rounded-t-lg ${
-                                d.isToday ? 'bg-blue-600' : 'bg-blue-700/80'
-                              }`} 
-                              style={{ height: `${pct}%` }} 
-                            />
-                          )}
-                          {d.isFuture && (
-                            <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400">
-                              قادم
-                            </div>
-                          )}
-                        </div>
-                        <span className={`text-[10px] ${d.isToday ? 'font-bold text-blue-700' : 'text-slate-600'}`}>
-                          {d.nameAr}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Social Apps Usage Breakdown */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-                <h4 className="font-bold text-slate-900 text-sm flex items-center justify-between">
-                  <span>توزيع الوقت حسب التطبيقات والمنصات</span>
-                  <span className="text-xs text-slate-500 font-mono">
-                    {timeRange === 'today' ? 'اليوم' : timeRange === 'week' ? 'خلال الأسبوع' : 'خلال الشهر'}
-                  </span>
-                </h4>
-
-                <div className="space-y-3 pt-2">
-                  {[
-                    { name: 'Threads', mins: Math.round(rangeSocialMins * 0.4), color: 'bg-indigo-600', icon: '🧵' },
-                    { name: 'YouTube', mins: Math.round(rangeSocialMins * 0.3), color: 'bg-rose-600', icon: '▶️' },
-                    { name: 'TikTok & Instagram', mins: Math.round(rangeSocialMins * 0.2), color: 'bg-pink-600', icon: '📸' },
-                    { name: 'Facebook & X', mins: Math.round(rangeSocialMins * 0.1), color: 'bg-blue-600', icon: '🌐' }
-                  ].map((app, idx) => {
-                    const total = Math.max(1, rangeSocialMins);
-                    const pct = Math.round((app.mins / total) * 100);
-                    return (
-                      <div key={idx} className="space-y-1 text-xs">
-                        <div className="flex justify-between font-medium text-slate-800">
-                          <span className="flex items-center gap-1.5">
-                            <span>{app.icon}</span>
-                            <span>{app.name}</span>
-                          </span>
-                          <span className="font-mono text-slate-600">{app.mins} دقيقة ({pct}%)</span>
-                        </div>
-                        <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={`h-full ${app.color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
           )}
 
           {/* ---------------------------------------------------- */}
@@ -661,33 +558,33 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-cyan-700 text-white p-4 rounded-2xl border border-cyan-800">
                   <span className="text-xs text-cyan-100 block font-semibold mb-1">
-                    إجمالي وقت المتصفح ({timeRange === 'today' ? 'اليوم' : timeRange === 'week' ? 'الأسبوع' : 'الشهر'})
+                    نشاط تبويب رقيب ({timeRange === 'today' ? 'اليوم' : timeRange === 'week' ? 'الأسبوع' : 'الشهر'})
                   </span>
                   <div className="text-3xl font-extrabold font-mono">
                     {rangeBrowserMins} <span className="text-xs font-normal text-cyan-200">دقيقة</span>
                   </div>
                   <p className="text-xs text-cyan-100 mt-2 font-mono">
-                    {(rangeBrowserMins / 60).toFixed(1)} ساعة تصفح واعي
+                    {(rangeBrowserMins / 60).toFixed(1)} ساعة نشاط للتبويب
                   </p>
                 </div>
 
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
                   <span className="text-xs text-slate-500 block font-semibold mb-1">سجل حراسة النوايا</span>
                   <div className="text-2xl font-bold font-mono text-cyan-700">
-                    {timeRange === 'today' ? recentIntentions.length : recentIntentions.length * (timeRange === 'week' ? weekPeriod.elapsedDaysCount : monthPeriod.currentDayNum)} <span className="text-xs font-normal text-slate-500">نيات</span>
+                    {recentIntentions.length} <span className="text-xs font-normal text-slate-500">نية مسجلة</span>
                   </div>
                   <p className="text-[11px] text-emerald-600 font-bold mt-2">
-                    ✨ درع النية يحمي التصفح
+                    عدد العناصر المحفوظة حالياً فقط؛ لا يتوفر أرشيف زمني
                   </p>
                 </div>
 
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-xs text-slate-500 block font-semibold mb-1">درجة الأمان والفلترة</span>
-                  <div className="text-2xl font-bold font-mono text-emerald-600">
-                    100% <span className="text-xs font-normal text-slate-500">محمي</span>
+                  <span className="text-xs text-slate-500 block font-semibold mb-1">التحقق من SafeSearch</span>
+                  <div className="text-lg font-bold text-slate-600">
+                    غير متحقق
                   </div>
                   <p className="text-[11px] text-slate-500 mt-2">
-                    محرك البحث الآمن (SafeSearch) مفعّل
+                    لا يعرض التطبيق دليلاً على حالة إعدادات محركات البحث الخارجية.
                   </p>
                 </div>
               </div>
@@ -734,31 +631,22 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
                     {rangeBlockedCount} <span className="text-xs font-normal text-rose-200">محاولات</span>
                   </div>
                   <p className="text-xs text-rose-100 mt-2">
-                    تم صدها بالكامل بنسبة 100%
+                    سجل محاولات محلية؛ لا يمثل نسبة نجاح مثبتة
                   </p>
                 </div>
 
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-xs text-slate-500 block font-semibold mb-1">توزيع الأجهزة</span>
-                  <div className="text-sm font-bold text-slate-800 space-y-1 mt-1">
-                    <div className="flex justify-between">
-                      <span>💻 بالويندوز:</span>
-                      <span className="font-mono text-rose-700">{Math.round(rangeBlockedCount * 0.4)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>📱 بالأندرويد:</span>
-                      <span className="font-mono text-rose-700">{Math.round(rangeBlockedCount * 0.6)}</span>
-                    </div>
-                  </div>
+                  <span className="text-xs text-slate-500 block font-semibold mb-1">مصدر السجل</span>
+                  <div className="text-sm font-bold text-slate-500 mt-2">لا يتوفر حالياً تفصيل موثوق حسب الجهاز.</div>
                 </div>
 
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
                   <span className="text-xs text-slate-500 block font-semibold mb-1">حالة الدرع والحماية</span>
-                  <div className="text-2xl font-bold font-mono text-emerald-600">
-                    نشط وقوي 🛡️
+                  <div className="text-lg font-bold text-slate-600">
+                    الحالة غير متحققة
                   </div>
                   <p className="text-[11px] text-slate-500 mt-2">
-                    قائمة الحظر المحدثة: 50,000+ نطاق
+                    يلزم اختبار الحجب الفعلي على الجهاز لمعرفة حالة الحماية.
                   </p>
                 </div>
               </div>
@@ -841,7 +729,7 @@ export const MetricDetailReportModal: React.FC<MetricDetailReportModalProps> = (
                         </div>
                         <div className="text-left shrink-0">
                           <span className="text-[10px] text-slate-400 font-mono block whitespace-nowrap">{item.timestamp}</span>
-                          <span className="text-[9px] text-emerald-600 font-bold">تم الردع 100%</span>
+                          <span className="text-[9px] text-slate-500 font-bold">سجل محلي</span>
                         </div>
                       </div>
                     ))}

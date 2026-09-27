@@ -82,6 +82,10 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
         }
+
+        binding.btnEnableUsageAccess.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
     }
 
     /**
@@ -102,6 +106,32 @@ class MainActivity : AppCompatActivity() {
         } else {
             binding.indicatorStatus.setBackgroundColor(android.graphics.Color.parseColor("#f59e0b")) // Yellow (Needs Activation)
             binding.tvLastBlockedTime.text = "الحالة: يرجى تفعيل الصلاحيات لبدء الحماية"
+        }
+
+        updateUsageSummary()
+    }
+
+    private fun updateUsageSummary() {
+        if (!UsageStatsTracker.hasUsageAccess(this)) {
+            binding.tvUsageSummary.text = "استخدام التطبيقات اليوم: غير مقاس — فعّل إذن بيانات الاستخدام"
+            return
+        }
+
+        try {
+            val snapshot = UsageStatsTracker.queryToday(this)
+            val packageUsage = snapshot.durationByPackageMillis
+                .filterKeys { it != packageName }
+                .entries
+                .sortedByDescending { it.value }
+            val totalMinutes = packageUsage.sumOf { it.value } / 60_000
+            val topApps = packageUsage.take(3).joinToString("، ") {
+                "${it.key}: ${it.value / 60_000}د"
+            }.ifEmpty { "لا توجد أحداث استخدام مسجلة اليوم" }
+            binding.tvUsageSummary.text =
+                "استخدام التطبيقات المقاس اليوم: ${totalMinutes}د • $topApps"
+        } catch (error: Exception) {
+            android.util.Log.e("MainActivity", "Failed to query Android usage events", error)
+            binding.tvUsageSummary.text = "تعذر قراءة سجل الاستخدام اليوم"
         }
     }
 

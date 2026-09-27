@@ -136,12 +136,34 @@
             android:id="@+id/btnEnableAccessibility"
             android:layout_width="match_parent"
             android:layout_height="52dp"
+            android:layout_marginBottom="10dp"
             android:backgroundTint="#0d9488"
             android:text="2. تفعيل خدمة الوصول (Accessibility Service)"
             android:textColor="#ffffff"
             android:textSize="14sp"
             android:textStyle="bold"
             app:cornerRadius="12dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnEnableUsageAccess"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginBottom="10dp"
+            android:backgroundTint="#475569"
+            android:text="3. السماح بقياس استخدام التطبيقات"
+            android:textColor="#ffffff"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:cornerRadius="12dp" />
+
+        <TextView
+            android:id="@+id/tvUsageSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="الاستخدام اليوم: غير مقاس"
+            android:textColor="#cbd5e1"
+            android:textSize="12sp" />
 
     </LinearLayout>
 

@@ -57,36 +57,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     return getYearlyActivityHeatmap(stats, prayers, heatmapFilter);
   }, [stats, prayers, heatmapFilter]);
 
-  // Distraction categories aggregation
-  const distractionData = useMemo(() => {
-    const categories: Record<string, number> = {
-      'تواصل اجتماعي': 0,
-      'فيديو وترفيه': 0,
-      'ألعاب': 0,
-      'محتوى ضار': 0,
-      'أخرى': 0
-    };
-    
-    blockedAttempts.forEach(log => {
-      const url = (log.urlOrQuery || '').toLowerCase();
-      if (url.includes('facebook') || url.includes('instagram') || url.includes('tiktok') || url.includes('twitter')) {
-        categories['تواصل اجتماعي']++;
-      } else if (url.includes('youtube') || url.includes('netflix') || url.includes('twitch')) {
-        categories['فيديو وترفيه']++;
-      } else if (url.includes('game') || url.includes('roblox') || url.includes('pubg')) {
-        categories['ألعاب']++;
-      } else if (log.reason.includes('إباحي') || url.includes('por') || url.includes('x')) {
-        categories['محتوى ضار']++;
-      } else {
-        categories['أخرى']++;
-      }
-    });
-
-    return Object.entries(categories)
-      .filter(([_, count]) => count > 0)
-      .map(([name, value]) => ({ name, value }));
-  }, [blockedAttempts]);
-
   // Victory Categories Data & Statistics
   const victoryChartData = useMemo(() => {
     const counts: Record<VictoryCategory, number> = {
@@ -99,13 +69,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       istighfar_adhkar: 0,
       panic_rescue: 0
     };
+    let unclassifiedCount = 0;
 
     victories.forEach(v => {
-      const cat = (v.category || (v.type === 'panic_button' ? 'panic_rescue' : 'resisted_urge')) as VictoryCategory;
-      if (counts[cat] !== undefined) {
-        counts[cat]++;
+      const category = v.category;
+      if (category && Object.prototype.hasOwnProperty.call(counts, category)) {
+        counts[category]++;
       } else {
-        counts.resisted_urge++;
+        unclassifiedCount++;
       }
     });
 
@@ -127,21 +98,30 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       color: categoryColors[catKey]
     }));
 
-    const activeItems = items.filter(item => item.value > 0);
+    const activeItems: Array<{
+      categoryKey: VictoryCategory | 'unclassified';
+      name: string;
+      value: number;
+      color: string;
+    }> = items.filter(item => item.value > 0);
+    if (unclassifiedCount > 0) {
+      activeItems.push({
+        categoryKey: 'unclassified',
+        name: 'غير مصنف',
+        value: unclassifiedCount,
+        color: '#64748b'
+      });
+    }
     const totalCount = victories.length;
 
     return {
-      all: items,
-      active: activeItems.length > 0 ? activeItems : [
-        { categoryKey: 'resisted_urge', name: 'مقاومة وسواس', value: 1, color: '#f59e0b' }
-      ],
+      all: activeItems,
+      active: activeItems,
+      unclassifiedCount,
       total: totalCount,
-      topCategory: activeItems.sort((a, b) => b.value - a.value)[0]?.name || 'غض بصر'
+      topCategory: [...activeItems].sort((a, b) => b.value - a.value)[0]?.name || 'لا توجد تصنيفات مسجلة'
     };
   }, [victories]);
-
-  const DISTRACTION_COLORS = ['#0d9488', '#3b82f6', '#eab308', '#f43f5e', '#8b5cf6'];
-  const totalDistractions = distractionData.reduce((sum, item) => sum + item.value, 0);
 
   // Helper formatter for minutes
   const formatMins = (minutes: number) => {
@@ -163,8 +143,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </span>
             <span className="text-xs text-slate-400 font-mono">
               {selectedSubTab === 'monthly_summary'
-                ? `${monthlySummary.days[0]?.formattedDate} - ${monthlySummary.days[29]?.formattedDate} (30 يوماً)`
-                : `${weeklySummary.days[0]?.formattedDate} - ${weeklySummary.days[6]?.formattedDate} (7 أيام)`}
+                ? `${monthlySummary.days[0]?.formattedDate} - ${monthlySummary.days[29]?.formattedDate} • بيانات ${monthlySummary.recordedDaysCount}/30 يوماً`
+                : `${weeklySummary.days[0]?.formattedDate} - ${weeklySummary.days[6]?.formattedDate} • بيانات ${weeklySummary.recordedDaysCount}/${weeklySummary.elapsedDaysCount} يوماً منقضياً`}
             </span>
           </div>
           <h1 className="text-2xl font-bold font-['Amiri',serif] text-slate-900 flex items-center gap-2">
@@ -184,9 +164,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 {selectedSubTab === 'monthly_summary' ? 'التزام الشهر' : 'التزام الأسبوع'}
               </span>
               <span className="block text-lg font-black text-emerald-900 leading-none">
-                {selectedSubTab === 'monthly_summary' 
-                  ? `${monthlySummary.prayerConsistencyPercentage}%` 
-                  : `${weeklySummary.prayerConsistencyPercentage}%`}
+                {(selectedSubTab === 'monthly_summary' ? monthlySummary.recordedDaysCount : weeklySummary.recordedDaysCount) > 0
+                  ? `${selectedSubTab === 'monthly_summary' ? monthlySummary.prayerConsistencyPercentage : weeklySummary.prayerConsistencyPercentage}%`
+                  : 'لا توجد بيانات'}
               </span>
             </div>
             <div className="w-px h-7 bg-emerald-200"></div>
@@ -200,8 +180,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </span>
               <span className="block text-lg font-black text-teal-900 leading-none">
                 {selectedSubTab === 'monthly_summary' 
-                  ? monthlySummary.totalFocusHoursFormatted 
-                  : weeklySummary.totalFocusHoursFormatted}
+                  ? (monthlySummary.recordedDaysCount > 0 ? monthlySummary.totalFocusHoursFormatted : 'لا توجد بيانات')
+                  : (weeklySummary.recordedDaysCount > 0 ? weeklySummary.totalFocusHoursFormatted : 'لا توجد بيانات')}
               </span>
             </div>
             <div className="w-px h-7 bg-teal-200"></div>
@@ -212,7 +192,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <div className="text-center">
               <span className="block text-[10px] text-amber-700 font-bold mb-0.5">أيام الثبات</span>
               <span className="block text-lg font-black text-amber-900 leading-none">
-                {stats.streakDays || 1} 🔥
+                {stats.streakDays || 0} 🔥
               </span>
             </div>
             <div className="w-px h-7 bg-amber-200"></div>
@@ -332,7 +312,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 <div className="text-center">
                   <span className="text-[11px] text-teal-300 font-bold block mb-1">مؤشر الانضباط</span>
                   <div className="text-3xl font-black text-amber-300 font-mono leading-none">
-                    {weeklySummary.weeklyScore}%
+                    {weeklySummary.weeklyScore === null ? 'لا توجد بيانات' : `${weeklySummary.weeklyScore}%`}
                   </div>
                   <span className="text-[10px] text-teal-200/70 block mt-1">درجة الزخم الروحي</span>
                 </div>
@@ -362,9 +342,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {weeklySummary.totalConfirmedPrayers}
+                  {weeklySummary.recordedDaysCount > 0 ? weeklySummary.totalConfirmedPrayers : '—'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">/ 35 صلاة مفروضة</span>
+                <span className="text-xs font-bold text-slate-400">
+                  {weeklySummary.recordedDaysCount > 0 ? `/ ${weeklySummary.totalPossiblePrayers} صلاة مسجلة الأيام` : 'لا توجد بيانات مسجلة بعد'}
+                </span>
               </div>
               <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                 <div 
@@ -373,7 +355,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 />
               </div>
               <span className="text-[11px] font-bold text-emerald-700 block">
-                نسبة الالتزام: {weeklySummary.prayerConsistencyPercentage}% أسبوعياً
+                {weeklySummary.recordedDaysCount > 0
+                  ? `نسبة الالتزام: ${weeklySummary.prayerConsistencyPercentage}% من الأيام المسجلة`
+                  : 'لا توجد بيانات مسجلة بعد'}
               </span>
             </div>
 
@@ -387,18 +371,22 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {weeklySummary.totalFocusHoursFormatted}
+                  {weeklySummary.recordedDaysCount > 0 ? weeklySummary.totalFocusHoursFormatted : 'لا توجد بيانات مسجلة'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">({weeklySummary.totalFocusSessions} جلسة)</span>
+                <span className="text-xs font-bold text-slate-400">
+                  {weeklySummary.recordedDaysCount > 0 ? `(${weeklySummary.totalFocusSessions} جلسة)` : ''}
+                </span>
               </div>
               <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                 <div 
                   className="bg-teal-600 h-full rounded-full transition-all duration-500" 
-                  style={{ width: `${Math.min(100, Math.round((weeklySummary.totalFocusMinutes / (7 * 60)) * 100))}%` }}
+                  style={{ width: `${Math.min(100, Math.round((weeklySummary.totalFocusMinutes / Math.max(1, weeklySummary.recordedDaysCount * 60)) * 100))}%` }}
                 />
               </div>
               <span className="text-[11px] font-bold text-teal-700 block">
-                معدل يومي: {weeklySummary.averageDailyFocusMinutes} دقيقة / يوم
+                {weeklySummary.recordedDaysCount > 0
+                  ? `متوسط الأيام المسجلة: ${weeklySummary.averageDailyFocusMinutes} دقيقة / يوم`
+                  : 'لا توجد بيانات مسجلة بعد'}
               </span>
             </div>
 
@@ -412,15 +400,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {weeklySummary.totalBlockedAttempts}
+                  {weeklySummary.recordedDaysCount > 0 ? weeklySummary.totalBlockedAttempts : '—'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">محاولة مصدودة</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-rose-500 h-full rounded-full" style={{ width: '100%' }} />
+                <span className="text-xs font-bold text-slate-400">
+                  {weeklySummary.recordedDaysCount > 0 ? 'سجلات منع محفوظة' : 'لا توجد بيانات مسجلة بعد'}
+                </span>
               </div>
               <span className="text-[11px] font-bold text-rose-700 block">
-                حماية تلقائية ومنع للشبهات والشهوات
+                {weeklySummary.recordedDaysCount > 0 ? 'إجمالي سجلات المنع المحلية خلال الفترة' : 'لم تسجل بيانات للفترة'}
               </span>
             </div>
 
@@ -434,15 +421,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {weeklySummary.totalIstighfarCount}
+                  {weeklySummary.recordedDaysCount > 0 ? weeklySummary.totalIstighfarCount : '—'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">تسبيحة واستغفار</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-cyan-500 h-full rounded-full" style={{ width: '100%' }} />
+                <span className="text-xs font-bold text-slate-400">
+                  {weeklySummary.recordedDaysCount > 0 ? 'مرات ذكر مسجلة' : 'لا توجد بيانات مسجلة بعد'}
+                </span>
               </div>
               <span className="text-[11px] font-bold text-cyan-700 block">
-                تطهير للقلب ورفع للهمة في الخلوة
+                {weeklySummary.recordedDaysCount > 0 ? 'عدد مرات الذكر المسجلة خلال الفترة' : 'لم تسجل بيانات للفترة'}
               </span>
             </div>
 
@@ -470,9 +456,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </span>
               </div>
 
-              <div className="h-64">
+              {weeklySummary.recordedDaysCount > 0 ? <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={weeklySummary.days} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
+                  <BarChart data={weeklySummary.days.filter(day => day.hasRecordedData)} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis 
                       dataKey="dayShort" 
@@ -518,7 +504,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+              </div> : <p className="h-64 flex items-center justify-center text-sm text-slate-500">لا توجد بيانات مسجلة لعرضها.</p>}
 
               <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
                 <span className="flex items-center gap-1.5">
@@ -554,7 +540,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={weeklySummary.days} margin={{ top: 15, right: 10, left: -15, bottom: 0 }}>
+                  <ComposedChart data={weeklySummary.days.filter(day => day.hasRecordedData)} margin={{ top: 15, right: 10, left: -15, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorScreenArea" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.35}/>
@@ -615,7 +601,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   <span className="w-2.5 h-2.5 rounded-full bg-sky-500"></span> وقت الشاشة الكلي (مساحة)
                 </span>
                 <span className="text-teal-700 font-bold">
-                  كفاءة التركيز: {weeklySummary.focusToScreenRatio}%
+                  نشاط الويب يقيس تبويب Raqeeb فقط، وليس استخدام الجهاز بالكامل
                 </span>
               </div>
             </div>
@@ -637,7 +623,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </div>
               </div>
               <span className="text-xs text-slate-500 font-bold bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
-                مجموع الأسبوع: {weeklySummary.totalConfirmedPrayers}/35 صلاة • {weeklySummary.totalFocusHoursFormatted} تركيز
+                {weeklySummary.recordedDaysCount > 0
+                  ? `مجموع الأيام المسجلة: ${weeklySummary.totalConfirmedPrayers}/${weeklySummary.totalPossiblePrayers} صلاة • ${weeklySummary.totalFocusHoursFormatted} تركيز`
+                  : 'لا توجد بيانات مسجلة خلال هذا الأسبوع'}
               </span>
             </div>
 
@@ -666,7 +654,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                         ? 'bg-teal-100 text-teal-800 border-teal-200'
                         : 'bg-amber-100 text-amber-800 border-amber-200'
                     }`}>
-                      {day.confirmedPrayers}/5 صلوات
+                      {day.hasRecordedData ? `${day.confirmedPrayers}/5 صلوات` : 'لا توجد بيانات'}
                     </span>
                   </div>
 
@@ -676,21 +664,21 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       <span className="flex items-center gap-1">
                         <Target className="w-3 h-3 text-teal-600" /> التركيز:
                       </span>
-                      <span className="font-bold text-slate-900">{formatMins(day.focusMinutes)}</span>
+                      <span className="font-bold text-slate-900">{day.hasRecordedData ? formatMins(day.focusMinutes) : '—'}</span>
                     </div>
 
                     <div className="flex items-center justify-between text-slate-600">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3 text-blue-500" /> الشاشة:
                       </span>
-                      <span className="font-bold text-slate-900">{formatMins(day.screenTimeMinutes)}</span>
+                      <span className="font-bold text-slate-900">{day.hasRecordedData ? formatMins(day.screenTimeMinutes) : '—'}</span>
                     </div>
 
                     <div className="flex items-center justify-between text-slate-600">
                       <span className="flex items-center gap-1">
                         <ShieldAlert className="w-3 h-3 text-rose-500" /> الحجب:
                       </span>
-                      <span className="font-bold text-rose-700">{day.blockedAttempts}</span>
+                      <span className="font-bold text-rose-700">{day.hasRecordedData ? day.blockedAttempts : '—'}</span>
                     </div>
                   </div>
 
@@ -728,7 +716,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   <span className="text-xs text-teal-200 font-mono bg-teal-950/80 px-2.5 py-0.5 rounded-lg border border-teal-700/50">
                     من {monthlySummary.days[0]?.formattedDate} إلى {monthlySummary.days[29]?.formattedDate}
                   </span>
-                  {monthlySummary.prayerGrowthVsLastWeek >= 0 && (
+                  {monthlySummary.prayerGrowthVsLastWeek !== null && monthlySummary.prayerGrowthVsLastWeek >= 0 && (
                     <span className="text-xs text-emerald-300 font-bold bg-emerald-950/80 px-2.5 py-0.5 rounded-lg border border-emerald-700/50 flex items-center gap-1">
                       <ArrowUpRight className="w-3.5 h-3.5" />
                       +{monthlySummary.prayerGrowthVsLastWeek}% نمو التزام الصلاة
@@ -748,7 +736,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 <div className="text-center">
                   <span className="text-[11px] text-teal-300 font-bold block mb-1">مؤشر الانضباط الشهري</span>
                   <div className="text-3xl sm:text-4xl font-black text-amber-300 font-mono leading-none">
-                    {monthlySummary.monthlyScore}%
+                    {monthlySummary.monthlyScore === null ? 'لا توجد بيانات' : `${monthlySummary.monthlyScore}%`}
                   </div>
                   <span className="text-[10px] text-teal-200/70 block mt-1">معدل الثبات العام</span>
                 </div>
@@ -778,9 +766,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {monthlySummary.totalConfirmedPrayers}
+                  {monthlySummary.recordedDaysCount > 0 ? monthlySummary.totalConfirmedPrayers : '—'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">/ 150 صلاة مفروضة</span>
+                <span className="text-xs font-bold text-slate-400">
+                  {monthlySummary.recordedDaysCount > 0 ? `/ ${monthlySummary.totalPossiblePrayers} صلاة في الأيام المسجلة` : 'لا توجد بيانات مسجلة بعد'}
+                </span>
               </div>
               <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
                 <div 
@@ -790,9 +780,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-bold text-emerald-700">
-                  نسبة الالتزام: {monthlySummary.prayerConsistencyPercentage}%
+                  {monthlySummary.recordedDaysCount > 0
+                    ? `نسبة الالتزام: ${monthlySummary.prayerConsistencyPercentage}% من الأيام المسجلة`
+                    : 'لا توجد بيانات مسجلة بعد'}
                 </span>
-                <span className="text-slate-400 font-mono">معدل {(monthlySummary.totalConfirmedPrayers / 30).toFixed(1)} يومياً</span>
+                <span className="text-slate-400 font-mono">
+                  {monthlySummary.recordedDaysCount > 0
+                    ? `معدل ${(monthlySummary.totalConfirmedPrayers / monthlySummary.recordedDaysCount).toFixed(1)} يومياً`
+                    : 'لا توجد بيانات مسجلة بعد'}
+                </span>
               </div>
             </div>
 
@@ -806,21 +802,25 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {monthlySummary.totalFocusHoursFormatted}
+                  {monthlySummary.recordedDaysCount > 0 ? monthlySummary.totalFocusHoursFormatted : 'لا توجد بيانات مسجلة'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">({monthlySummary.totalFocusSessions} جلسة)</span>
+                <span className="text-xs font-bold text-slate-400">
+                  {monthlySummary.recordedDaysCount > 0 ? `(${monthlySummary.totalFocusSessions} جلسة)` : ''}
+                </span>
               </div>
               <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
                 <div 
                   className="bg-teal-600 h-full rounded-full transition-all duration-500" 
-                  style={{ width: `${Math.min(100, Math.round((monthlySummary.totalFocusMinutes / (30 * 60)) * 100))}%` }}
+                  style={{ width: `${Math.min(100, Math.round((monthlySummary.totalFocusMinutes / Math.max(1, monthlySummary.recordedDaysCount * 60)) * 100))}%` }}
                 />
               </div>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-bold text-teal-700">
-                  معدل يومي: {monthlySummary.averageDailyFocusMinutes} دقيقة
+                  {monthlySummary.recordedDaysCount > 0
+                    ? `متوسط الأيام المسجلة: ${monthlySummary.averageDailyFocusMinutes} دقيقة`
+                    : 'لا توجد بيانات مسجلة بعد'}
                 </span>
-                <span className="text-slate-400 font-mono">كفاءة {monthlySummary.focusToScreenRatio}%</span>
+                <span className="text-slate-400 text-right">نشاط الويب لا يقيس استخدام الجهاز بالكامل</span>
               </div>
             </div>
 
@@ -834,16 +834,17 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {monthlySummary.totalBlockedAttempts}
+                  {monthlySummary.recordedDaysCount > 0 ? monthlySummary.totalBlockedAttempts : '—'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">محاولة مصدودة</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                <div className="bg-rose-500 h-full rounded-full" style={{ width: '100%' }} />
+                <span className="text-xs font-bold text-slate-400">
+                  {monthlySummary.recordedDaysCount > 0 ? 'سجلات منع محفوظة' : 'لا توجد بيانات مسجلة بعد'}
+                </span>
               </div>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-bold text-rose-700">
-                  حماية 30 يوماً مستمرة 🛡️
+                  {monthlySummary.recordedDaysCount > 0
+                    ? `${monthlySummary.recordedDaysCount} يوم ببيانات مسجلة`
+                    : 'لا توجد بيانات مسجلة بعد'}
                 </span>
                 <span className="text-slate-400 font-mono">حفظ البصر والقلب</span>
               </div>
@@ -859,16 +860,17 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-slate-900 font-mono">
-                  {monthlySummary.totalIstighfarCount}
+                  {monthlySummary.recordedDaysCount > 0 ? monthlySummary.totalIstighfarCount : '—'}
                 </span>
-                <span className="text-xs font-bold text-slate-400">تسبيحة واستغفار</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                <div className="bg-cyan-500 h-full rounded-full" style={{ width: '100%' }} />
+                <span className="text-xs font-bold text-slate-400">
+                  {monthlySummary.recordedDaysCount > 0 ? 'مرات ذكر مسجلة' : 'لا توجد بيانات مسجلة بعد'}
+                </span>
               </div>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-bold text-cyan-700">
-                  معدل {Math.round(monthlySummary.totalIstighfarCount / 30)} يومياً
+                  {monthlySummary.recordedDaysCount > 0
+                    ? `معدل ${Math.round(monthlySummary.totalIstighfarCount / monthlySummary.recordedDaysCount)} يومياً`
+                    : 'لا توجد بيانات مسجلة بعد'}
                 </span>
                 <span className="text-slate-400 font-mono">طهارة دائمة ✨</span>
               </div>
@@ -929,7 +931,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           ? 'bg-teal-100 text-teal-900 border-teal-300' 
                           : 'bg-amber-100 text-amber-900 border-amber-300'
                       }`}>
-                        مؤشر {week.productivityScore}%
+                        {week.productivityScore === null ? 'لا توجد بيانات' : `مؤشر ${week.productivityScore}%`}
                       </span>
                     </div>
 
@@ -940,7 +942,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           <Heart className="w-3.5 h-3.5 text-emerald-600" /> الصلوات:
                         </span>
                         <span className="font-bold text-slate-900 font-mono">
-                          {week.confirmedPrayers} / {week.possiblePrayers} ({week.prayerPercentage}%)
+                          {week.recordedDaysCount > 0
+                            ? `${week.confirmedPrayers} / ${week.possiblePrayers} (${week.prayerPercentage}%)`
+                            : 'لا توجد بيانات مسجلة'}
                         </span>
                       </div>
 
@@ -949,7 +953,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           <Target className="w-3.5 h-3.5 text-teal-600" /> التركيز:
                         </span>
                         <span className="font-bold text-teal-700 font-mono">
-                          {week.focusHoursFormatted} ({week.focusSessions} جلسة)
+                          {week.recordedDaysCount > 0 ? `${week.focusHoursFormatted} (${week.focusSessions} جلسة)` : 'لا توجد بيانات مسجلة'}
                         </span>
                       </div>
 
@@ -958,7 +962,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           <Clock className="w-3.5 h-3.5 text-blue-500" /> الشاشة:
                         </span>
                         <span className="font-bold text-slate-800 font-mono">
-                          {week.screenHoursFormatted}
+                          {week.recordedDaysCount > 0 ? week.screenHoursFormatted : 'لا توجد بيانات مسجلة'}
                         </span>
                       </div>
 
@@ -967,7 +971,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           <ShieldAlert className="w-3.5 h-3.5 text-rose-500" /> الحجب والذكر:
                         </span>
                         <span className="font-bold text-slate-800 font-mono text-[11px]">
-                          {week.blockedAttempts} حجب • {week.istighfarCount} ذكر
+                          {week.recordedDaysCount > 0
+                            ? `${week.blockedAttempts} حجب • ${week.istighfarCount} ذكر`
+                            : 'لا توجد بيانات مسجلة'}
                         </span>
                       </div>
                     </div>
@@ -977,7 +983,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
                         <div 
                           className="bg-teal-600 h-full rounded-full" 
-                          style={{ width: `${week.productivityScore}%` }} 
+                          style={{ width: `${week.productivityScore ?? 0}%` }}
                         />
                       </div>
                     </div>
@@ -1007,7 +1013,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
                 <div className="h-60">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthlySummary.weeksComparison} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
+                    {monthlySummary.recordedDaysCount > 0 ? <BarChart data={monthlySummary.weeksComparison.filter(week => week.recordedDaysCount > 0)} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="weekLabel" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }} dy={8} />
                       <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
@@ -1031,14 +1037,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           />
                         ))}
                       </Bar>
-                    </BarChart>
+                    </BarChart> : <p className="h-60 flex items-center justify-center text-sm text-slate-500">لا توجد بيانات صلاة مسجلة لعرض المقارنة.</p>}
                   </ResponsiveContainer>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                  <span>الأسبوع 1: {monthlySummary.weeksComparison[0]?.prayerPercentage}%</span>
-                  <span>الأسبوع 2: {monthlySummary.weeksComparison[1]?.prayerPercentage}%</span>
-                  <span>الأسبوع 3: {monthlySummary.weeksComparison[2]?.prayerPercentage}%</span>
-                  <span className="font-bold text-teal-700">الأسبوع 4 (الحالي): {monthlySummary.weeksComparison[3]?.prayerPercentage}%</span>
+                  <span>الأسبوع 1: {monthlySummary.weeksComparison[0]?.recordedDaysCount ? `${monthlySummary.weeksComparison[0].prayerPercentage}%` : 'لا توجد بيانات'}</span>
+                  <span>الأسبوع 2: {monthlySummary.weeksComparison[1]?.recordedDaysCount ? `${monthlySummary.weeksComparison[1].prayerPercentage}%` : 'لا توجد بيانات'}</span>
+                  <span>الأسبوع 3: {monthlySummary.weeksComparison[2]?.recordedDaysCount ? `${monthlySummary.weeksComparison[2].prayerPercentage}%` : 'لا توجد بيانات'}</span>
+                  <span className="font-bold text-teal-700">الأسبوع 4 (الحالي): {monthlySummary.weeksComparison[3]?.recordedDaysCount ? `${monthlySummary.weeksComparison[3].prayerPercentage}%` : 'لا توجد بيانات'}</span>
                 </div>
               </div>
 
@@ -1059,7 +1065,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
                 <div className="h-60">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthlySummary.weeksComparison} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
+                    {monthlySummary.recordedDaysCount > 0 ? <BarChart data={monthlySummary.weeksComparison.filter(week => week.recordedDaysCount > 0)} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="weekLabel" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }} dy={8} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
@@ -1078,7 +1084,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       />
                       <Bar dataKey="focusHours" name="focusHours" fill="#0d9488" radius={[6, 6, 0, 0]} barSize={20} />
                       <Bar dataKey="screenHours" name="screenHours" fill="#38bdf8" radius={[6, 6, 0, 0]} barSize={20} />
-                    </BarChart>
+                    </BarChart> : <p className="h-60 flex items-center justify-center text-sm text-slate-500">لا توجد بيانات مسجلة لعرض المقارنة.</p>}
                   </ResponsiveContainer>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
@@ -1184,7 +1190,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> عدد الصلوات المؤداة (خط أصفر 0-5)
               </span>
               <span className="text-slate-700 font-medium">
-                متوسط يومي: {monthlySummary.averageDailyFocusMinutes} دقيقة تركيز • {(monthlySummary.totalConfirmedPrayers / 30).toFixed(1)} صلاة
+                {monthlySummary.recordedDaysCount > 0
+                  ? `متوسط يومي: ${monthlySummary.averageDailyFocusMinutes} دقيقة تركيز • ${(monthlySummary.totalConfirmedPrayers / monthlySummary.recordedDaysCount).toFixed(1)} صلاة`
+                  : 'لا توجد بيانات مسجلة بعد'}
               </span>
             </div>
           </div>
@@ -1704,9 +1712,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </p>
               </div>
 
-              <div className="h-56">
+              {weeklySummary.recordedDaysCount > 0 ? <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={weeklySummary.days} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                  <AreaChart data={weeklySummary.days.filter(day => day.hasRecordedData)} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorPrayerGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
@@ -1723,11 +1731,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                     <Area type="monotone" dataKey="confirmedPrayers" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorPrayerGrad)" />
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
+              </div> : <p className="h-56 flex items-center justify-center text-sm text-slate-500">لا توجد بيانات مسجلة لعرضها.</p>}
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-                <span>المتوسط الأسبوعي: {(weeklySummary.totalConfirmedPrayers / 7).toFixed(1)} صلاة / يوم</span>
-                <span className="text-emerald-700 font-bold">ثبات مستمر 🌟</span>
+                <span>
+                  {weeklySummary.recordedDaysCount > 0
+                    ? `متوسط الأيام المسجلة: ${(weeklySummary.totalConfirmedPrayers / weeklySummary.recordedDaysCount).toFixed(1)} صلاة / يوم`
+                    : 'لا توجد بيانات مسجلة بعد'}
+                </span>
+                <span className="text-emerald-700 font-bold">{weeklySummary.recordedDaysCount} يوم ببيانات مسجلة</span>
               </div>
             </div>
 
@@ -1747,7 +1759,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
             <div className="h-60">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={weeklySummary.days} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                <BarChart data={weeklySummary.days.filter(day => day.hasRecordedData)} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="dayShort" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} dy={8} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
@@ -1786,7 +1798,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
-                أعلى تصنيف: {victoryChartData.topCategory} 🌟
+                التصنيف الأعلى: {victoryChartData.topCategory}
               </span>
             </div>
           </div>
@@ -1795,7 +1807,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             {/* Donut Chart: Proportions */}
             <div className="lg:col-span-5 flex flex-col items-center justify-center">
               <h4 className="text-xs font-bold text-slate-600 mb-2">نسب توزيع المكتسبات</h4>
-              <div className="w-full h-56 relative flex items-center justify-center">
+              {victoryChartData.total > 0 ? <div className="w-full h-56 relative flex items-center justify-center">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -1822,13 +1834,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   <span className="text-2xl font-black text-slate-900 font-mono">{victories.length}</span>
                   <span className="text-[11px] text-slate-500 font-bold">مكتسب روحي</span>
                 </div>
-              </div>
+              </div> : <p className="h-56 flex items-center justify-center text-sm text-slate-500">لا توجد مكتسبات مسجلة بعد.</p>}
             </div>
 
             {/* Bar Chart: Counts by Category */}
             <div className="lg:col-span-7 space-y-3">
               <h4 className="text-xs font-bold text-slate-600">إحصاءات الانتصارات حسب التصنيف</h4>
-              <div className="h-56">
+              {victoryChartData.total > 0 ? <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={victoryChartData.all} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
@@ -1846,7 +1858,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+              </div> : <p className="h-56 flex items-center justify-center text-sm text-slate-500">لا توجد بيانات تصنيف لعرضها بعد.</p>}
             </div>
           </div>
         </div>
@@ -1866,7 +1878,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={weeklySummary.days} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={weeklySummary.days.filter(day => day.hasRecordedData)} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorScreen" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
@@ -1898,7 +1910,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={weeklySummary.days} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={weeklySummary.days.filter(day => day.hasRecordedData)} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="dayShort" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
@@ -1923,51 +1935,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               <Layers className="w-5 h-5 text-indigo-500" />
               تحليل أنواع المشتتات المحظورة
             </h3>
-            {totalDistractions > 0 ? (
-              <div className="flex flex-col sm:flex-row items-center h-full gap-6">
-                <div className="w-full sm:w-1/2 h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={distractionData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={45}
-                        outerRadius={75}
-                        paddingAngle={3}
-                        dataKey="value"
-                        stroke="none"
-                      >
-                        {distractionData.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={DISTRACTION_COLORS[index % DISTRACTION_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', direction: 'rtl' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="w-full sm:w-1/2 space-y-3">
-                  {distractionData.map((item, i) => (
-                    <div key={item.name} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: DISTRACTION_COLORS[i % DISTRACTION_COLORS.length] }}></div>
-                        <span className="text-slate-600">{item.name}</span>
-                      </div>
-                      <span className="font-bold text-slate-900">{Math.round((item.value / totalDistractions) * 100)}% ({item.value})</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="h-56 flex flex-col items-center justify-center text-center space-y-3">
-                <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 text-teal-500" />
-                </div>
-                <p className="text-slate-500 text-sm">أداء ممتاز! لم يتم تسجيل أي محاولات تشتت مسجلة.</p>
-              </div>
-            )}
+            <div className="min-h-40 flex flex-col items-center justify-center gap-3 text-center text-slate-600">
+              <span className="text-3xl font-bold font-mono">{blockedAttempts.length}</span>
+              <p className="max-w-xl text-sm leading-relaxed">
+                {blockedAttempts.length > 0
+                  ? 'عدد سجلات المنع المحلية الحالية فقط. لا تحفظ السجلات عناوين المواقع، لذلك لا يمكن تصنيفها بأمانة إلى أنواع.'
+                  : 'لا توجد سجلات منع محفوظة حالياً. لا تتوفر بيانات لتصنيف أنواع المشتتات.'}
+              </p>
+            </div>
           </div>
 
         </div>

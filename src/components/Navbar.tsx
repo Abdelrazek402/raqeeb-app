@@ -1,6 +1,7 @@
 import React from 'react';
 import { 
   Laptop, 
+  Clock,
   Volume2, 
   VolumeX, 
   Flame,
@@ -48,15 +49,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   const hoursLeft = Math.floor(nextPrayerData.minutesLeft / 60);
   const minsLeft = nextPrayerData.minutesLeft % 60;
 
-  const winTime = syncState.devices.windows.stats.totalTimeMinutes;
-  const androidTime = syncState.devices.android.stats.totalTimeMinutes;
-  const totalDeviceMinutes = winTime + androidTime;
-  const formatHoursMins = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return `${h > 0 ? h + 'س ' : ''}${m}د`;
-  };
-
   const levelBadge = {
     1: { label: 'مستوى 1: تذكير', color: 'bg-blue-50 text-blue-700 border-blue-200' },
     2: { label: 'مستوى 2: حماية', color: 'bg-teal-50 text-teal-700 border-teal-200' },
@@ -86,18 +78,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Quick info badges & Sound controls */}
           <div className="flex items-center justify-center gap-1.5 sm:gap-3 overflow-x-auto scrollbar-hide pb-1 -mb-1 px-1 max-w-full">
             {/* Screen Time Counters */}
-            <div className="hidden min-[400px]:flex items-center gap-1 sm:gap-1.5 h-8 sm:h-9 bg-slate-50 rounded-xl border border-slate-200 shrink-0" title="وقت الاستخدام المسجل للأجهزة">
-              <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-teal-700 font-bold px-1.5 sm:px-2 border-l border-slate-200">
-                <Laptop className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                <span className="font-mono">{winTime}د</span>
-              </div>
-              <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-blue-700 font-bold px-1.5 sm:px-2 border-l border-slate-200">
-                <Smartphone className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                <span className="font-mono">{androidTime}د</span>
-              </div>
-              <div className="hidden lg:flex items-center gap-1 text-[10px] sm:text-[11px] text-slate-700 font-bold px-2">
-                <span>المجموع: </span>
-                <span className="font-mono">{formatHoursMins(totalDeviceMinutes)}</span>
+            <div className="hidden min-[400px]:flex items-center gap-1 sm:gap-1.5 h-8 sm:h-9 bg-slate-50 rounded-xl border border-slate-200 shrink-0" title="قياس وقت الاستخدام على الأجهزة غير متاح حالياً">
+              <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-slate-600 font-bold px-2">
+                <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                <span>وقت الأجهزة: غير مقاس</span>
               </div>
             </div>
 

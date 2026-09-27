@@ -112,7 +112,7 @@ export function calculatePeriodMoonProgress(
 
   if (period === 'week') {
     const targetValue = 7;
-    const currentValue = Math.max(1, Math.min(7, streakDays));
+    const currentValue = Math.max(0, Math.min(7, streakDays));
     const fraction = currentValue / targetValue;
     const percentage = Math.round(fraction * 100);
     const isFullMoon = currentValue >= 7;
@@ -121,7 +121,11 @@ export function calculatePeriodMoonProgress(
     let phaseTitle = 'هلال الأسبوع';
     let calmReflection = '';
 
-    if (currentValue <= 2) {
+    if (currentValue === 0) {
+      stageName = 'لا توجد سلسلة مسجلة';
+      phaseTitle = 'لا توجد أيام مكتملة مسجلة بعد';
+      calmReflection = 'سيظهر عدد الأيام بعد تسجيل نشاط فعلي.';
+    } else if (currentValue <= 2) {
       stageName = 'هلال الأسبوع';
       phaseTitle = `هلال الأسبوع (${currentValue} من 7 أيام)`;
       calmReflection = 'بداية أسبوع مبارك، ثباتك في الأيام الأولى يؤسس لنور دائم.';
@@ -156,7 +160,7 @@ export function calculatePeriodMoonProgress(
 
   // month
   const targetValue = 30;
-  const currentValue = Math.max(1, Math.min(30, streakDays));
+  const currentValue = Math.max(0, Math.min(30, streakDays));
   const fraction = currentValue / targetValue;
   const percentage = Math.round(fraction * 100);
   const isFullMoon = currentValue >= 30;
@@ -165,7 +169,11 @@ export function calculatePeriodMoonProgress(
   let phaseTitle = 'هلال الشهر';
   let calmReflection = '';
 
-  if (currentValue <= 7) {
+  if (currentValue === 0) {
+    stageName = 'لا توجد سلسلة مسجلة';
+    phaseTitle = 'لا توجد أيام مكتملة مسجلة بعد';
+    calmReflection = 'سيظهر عدد الأيام بعد تسجيل نشاط فعلي.';
+  } else if (currentValue <= 7) {
     stageName = 'هلال الشهر الأول';
     phaseTitle = `هلال الشهر الأول (${currentValue} من 30 يوماً)`;
     calmReflection = 'أسبوعك الأول في رحاب الاستقامة، الهلال ينمو مع كل سجدة وغض بصر.';
@@ -204,17 +212,14 @@ export function calculatePeriodMoonProgress(
 
 export function getSpiritualStreak(): SpiritualStreakInfo {
   const defaultStreak: SpiritualStreakInfo = {
-    consecutiveDays: 1,
-    moonPhase: 'waxing_crescent',
-    phaseTitle: 'هلال البداية المبارك',
-    calmReflection: 'خطوة أولى في طريق الاستقامة الرقمية واليقظة القلبية.',
-    lastActiveDate: new Date().toISOString().split('T')[0]
+    consecutiveDays: 0,
+    moonPhase: 'new_moon',
+    phaseTitle: 'لا توجد سلسلة مسجلة',
+    calmReflection: 'سيظهر عدد الأيام بعد تسجيل نشاط فعلي.',
+    lastActiveDate: ''
   };
 
   const stored = loadStored<SpiritualStreakInfo>(STORAGE_STREAK_KEY, defaultStreak);
-  const today = new Date().toISOString().split('T')[0];
-
-  // If last active was yesterday, streak continues. If today, it's current. If more than 1 day ago, recalculate gently.
   return stored;
 }
 
@@ -236,15 +241,11 @@ export function updateSpiritualStreak(completedPrayersToday: number, quranPagesT
   const nowDate = new Date(today);
   const diffDays = Math.round((nowDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
 
-  let newDays = current.consecutiveDays;
+  let newDays = 0;
   if (diffDays === 1) {
-    // Consecutive day
     if (completedPrayersToday >= 3 || quranPagesToday > 0) {
-      newDays += 1;
+      newDays = current.consecutiveDays + 1;
     }
-  } else if (diffDays > 1) {
-    // Graceful continuation: instead of resetting to 0 brutally, preserve gentle momentum
-    newDays = Math.max(1, Math.floor(current.consecutiveDays / 2));
   }
 
   const phaseInfo = calculateMoonPhase(newDays);

@@ -1,4 +1,4 @@
-name: Build Raqeeb Android Signed APK
+name: Validate Android debug build
 
 on:
   push:
@@ -31,17 +31,5 @@ jobs:
           cd android
           ./gradlew assembleDebug --stacktrace
 
-      - name: Copy & Prepare APK Artifact
-        run: |
-          mkdir -p public/downloads
-          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
-            cp android/app/build/outputs/apk/debug/app-debug.apk public/downloads/Raqeeb.apk
-            echo "Successfully copied app-debug.apk to public/downloads/Raqeeb.apk"
-          fi
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Raqeeb-Android-APK
-          path: public/downloads/Raqeeb.apk
-          retention-days: 30
+      - name: Build Android debug APK
+        run: ./android/gradlew -p android assembleDebug --stacktrace

@@ -17,6 +17,24 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidPairingCode(id) {
+      return id is string && id.matches('^RQ-[A-Za-z0-9_\\-]{4,32}$');
+    }
+
+    function ownsActivePairingSession() {
+      return isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && resource.data.expiresAt is timestamp
+        && request.time < resource.data.expiresAt;
+    }
+
+    function createsOwnedPairingSession() {
+      return isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.expiresAt is timestamp
+        && request.time < request.resource.data.expiresAt;
+    }
+
     // Default deny for unmatched collections
     match /{document=**} {
       allow read, write: if false;
@@ -43,13 +61,19 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
-    // Multi-Device Pairing Sessions (Restricted to authenticated users with valid code and expiresAt TTL)
+    // Pairing codes identify a session; authentication and immutable ownership authorize access.
     match /pairingSessions/{pairingCode} {
-      allow read: if isAuthenticated() && isValidId(pairingCode) && 
-        (resource == null || resource.data.expiresAt == null || request.time < resource.data.expiresAt);
-      allow create, update: if isAuthenticated() && isValidId(pairingCode) && 
-        (request.resource.data.expiresAt == null || request.resource.data.expiresAt is timestamp);
-      allow delete: if isAuthenticated() && isValidId(pairingCode);
+      allow read: if isValidPairingCode(pairingCode) && ownsActivePairingSession();
+      allow create: if isValidPairingCode(pairingCode) && createsOwnedPairingSession();
+      allow update: if isValidPairingCode(pairingCode)
+        && ownsActivePairingSession()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.expiresAt is timestamp
+        && request.time < request.resource.data.expiresAt
+        && request.resource.data.expiresAt <= request.time + duration.value(30, 'd');
+      allow delete: if isValidPairingCode(pairingCode)
+        && isAuthenticated()
+        && resource.data.userId == request.auth.uid;
     }
   }
 }

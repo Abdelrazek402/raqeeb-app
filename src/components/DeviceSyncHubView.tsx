@@ -121,7 +121,7 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
       if (ok) {
         setJoinMsg({ text: `🎉 تم الارتباط سحابياً بالجلسة [${formattedCode}] بنجاح!` });
       } else {
-        setJoinMsg({ text: `تم تحديث الكود إلى [${formattedCode}]` });
+        setJoinMsg({ text: 'تعذر الانضمام. تأكد من استخدام الحساب المالك ومن صلاحية رمز الاقتران.', isError: true });
       }
     } else {
       onUpdateSyncState({
@@ -153,7 +153,7 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
         setJoinMsg({ text: `تم توليد رمز اقتران جديد: ${newCode}` });
       }
     } catch (e) {
-      setJoinMsg({ text: 'تم تحديث رمز الاقتران محلياً.' });
+      setJoinMsg({ text: 'تعذر إنشاء رمز اقتران جديد. تحقق من تسجيل الدخول والاتصال ثم حاول مجدداً.', isError: true });
     } finally {
       setIsRegenerating(false);
       setTimeout(() => setJoinMsg(null), 4000);
@@ -162,9 +162,12 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
 
   const win = syncState.devices.windows;
   const android = syncState.devices.android;
-  const totalScreenTime = (win.stats?.totalTimeMinutes || 0) + (android.stats?.totalTimeMinutes || 0);
-  const winPercent = totalScreenTime > 0 ? Math.round(((win.stats?.totalTimeMinutes || 0) / totalScreenTime) * 100) : 50;
-  const androidPercent = totalScreenTime > 0 ? 100 - winPercent : 50;
+  const totalScreenTime = (win.stats.usageMeasured ? win.stats.totalTimeMinutes : 0)
+    + (android.stats.usageMeasured ? android.stats.totalTimeMinutes : 0);
+  const winPercent = totalScreenTime > 0 && win.stats.usageMeasured
+    ? Math.round((win.stats.totalTimeMinutes / totalScreenTime) * 100)
+    : 0;
+  const androidPercent = totalScreenTime > 0 && android.stats.usageMeasured ? 100 - winPercent : 0;
 
   const isAndroidConnected = android.status === 'connected' && 
     Boolean(syncState.phoneLink?.isLinked) && 
@@ -302,12 +305,14 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
               <div className="flex justify-between text-slate-600">
                 <span>وقت الاستخدام اليوم:</span>
                 <span className="font-bold font-mono text-slate-900">
-                  {Math.floor((win.stats?.totalTimeMinutes || 0) / 60)}س {(win.stats?.totalTimeMinutes || 0) % 60}د
+                  {win.stats.usageMeasured
+                    ? `${Math.floor(win.stats.totalTimeMinutes / 60)}س ${win.stats.totalTimeMinutes % 60}د`
+                    : 'غير مقاس'}
                 </span>
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>تصفح المتصفحات:</span>
-                <span className="font-mono text-teal-700 font-semibold">{win.stats?.browserTimeMinutes || 0} دقيقة</span>
+                <span className="font-mono text-slate-500 font-semibold">غير مقاس</span>
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>المحاولات المحجوبة:</span>
@@ -462,12 +467,14 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
               <div className="flex justify-between text-slate-600">
                 <span>إجمالي وقت الهاتف اليوم:</span>
                 <span className="font-bold font-mono text-slate-900">
-                  {Math.floor((android.stats?.totalTimeMinutes || 0) / 60)}س {(android.stats?.totalTimeMinutes || 0) % 60}د
+                  {android.stats.usageMeasured
+                    ? `${Math.floor(android.stats.totalTimeMinutes / 60)}س ${android.stats.totalTimeMinutes % 60}د`
+                    : 'غير مقاس'}
                 </span>
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>تطبيقات التواصل:</span>
-                <span className="font-mono text-teal-700 font-semibold">{android.stats?.socialTimeMinutes || 0} دقيقة</span>
+                <span className="font-mono text-slate-500 font-semibold">{android.stats.usageMeasured ? `${android.stats.socialTimeMinutes} دقيقة` : 'غير مقاس'}</span>
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>محاولات محجوبة على الهاتف:</span>
@@ -526,7 +533,7 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
           sharedClipboard: '',
           clipboardSender: null,
           lastClipboardSync: null,
-          lastPingSecondsAgo: 0,
+          lastPingSecondsAgo: null,
           notifications: []
         }}
         onUpdatePhoneLinkState={(newPhoneLink: PhoneLinkState) => {
@@ -549,17 +556,17 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
           الحصيلة المجمعة للجهازين معاً اليوم
         </h3>
         <p className="text-xs text-slate-500 mb-4">
-          يتم دمج ومزامنة إحصائيات الكمبيوتر والموبايل لحظياً عبر السحابة.
+          تتم مزامنة البيانات عبر السحابة؛ وقت الشاشة لا يظهر إلا إذا أرسله جهاز مع قياس فعلي.
         </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-4">
           <div className="p-3.5 sm:p-4 bg-slate-50 border border-slate-200 rounded-2xl">
             <span className="text-xs text-slate-500 block mb-1">⏱️ إجمالي وقت الشاشة</span>
             <span className="text-lg sm:text-xl font-extrabold text-slate-900 font-mono">
-              {Math.floor(totalScreenTime / 60)}س {totalScreenTime % 60}د
+              {totalScreenTime > 0 ? `${Math.floor(totalScreenTime / 60)}س ${totalScreenTime % 60}د` : 'غير مقاس'}
             </span>
             <span className="text-[10px] sm:text-[11px] text-slate-400 block mt-1 truncate">
-              (كمبيوتر: {win.stats?.totalTimeMinutes || 0}د • موبايل: {android.stats?.totalTimeMinutes || 0}د)
+              (كمبيوتر: {win.stats.usageMeasured ? `${win.stats.totalTimeMinutes}د` : 'غير مقاس'} • موبايل: {android.stats.usageMeasured ? `${android.stats.totalTimeMinutes}د` : 'غير مقاس'})
             </span>
           </div>
 
@@ -597,12 +604,22 @@ export const DeviceSyncHubView: React.FC<DeviceSyncHubViewProps> = ({
         {/* Distribution bar */}
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs text-slate-600 font-medium">
-            <span>💻 الكمبيوتر ({winPercent}%)</span>
-            <span>📱 الهاتف ({androidPercent}%)</span>
+            {totalScreenTime > 0 ? (
+              <>
+                <span>💻 الكمبيوتر {win.stats.usageMeasured ? `(${winPercent}%)` : '(غير مقاس)'}</span>
+                <span>📱 الهاتف {android.stats.usageMeasured ? `(${androidPercent}%)` : '(غير مقاس)'}</span>
+              </>
+            ) : (
+              <span>توزيع وقت الشاشة غير مقاس</span>
+            )}
           </div>
           <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden flex border border-slate-200">
-            <div style={{ width: `${winPercent}%` }} className="bg-teal-600 h-full transition-all" />
-            <div style={{ width: `${androidPercent}%` }} className="bg-slate-500 h-full transition-all" />
+            {totalScreenTime > 0 && (
+              <>
+                <div style={{ width: `${winPercent}%` }} className="bg-teal-600 h-full transition-all" />
+                <div style={{ width: `${androidPercent}%` }} className="bg-slate-500 h-full transition-all" />
+              </>
+            )}
           </div>
         </div>
       </div>

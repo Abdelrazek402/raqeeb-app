@@ -5,7 +5,6 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import webpush from "web-push";
 import crypto from "crypto";
-import { buildWindowsPeExe, buildAndroidApk, preGenerateStaticInstallers } from "./server/installerBuilder.ts";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -65,11 +64,6 @@ function rateLimit(limitPerMinute: number = 20) {
   };
 }
 
-// Pairing code validator
-function isValidPairingCode(code: any): boolean {
-  return typeof code === 'string' && /^RQ-[A-Za-z0-9_\-]{4,32}$/.test(code.trim());
-}
-
 const pushSubscriptions: Record<string, any> = {};
 
 let aiClient: GoogleGenAI | null = null;
@@ -88,7 +82,6 @@ const DB_FILE = path.join(process.cwd(), '.raqeeb-server-store.json');
 const activeDevices: Record<string, any> = {};
 const blockedAttemptsLog: any[] = [];
 const intentionsLog: any[] = [];
-const phoneLinkSessions: Record<string, any> = {};
 const athkarSchedules: Record<string, any> = {};
 
 function loadServerStore() {
@@ -96,7 +89,6 @@ function loadServerStore() {
     if (fs.existsSync(DB_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
       if (parsed.activeDevices) Object.assign(activeDevices, parsed.activeDevices);
-      if (parsed.phoneLinkSessions) Object.assign(phoneLinkSessions, parsed.phoneLinkSessions);
       if (Array.isArray(parsed.blockedAttemptsLog)) blockedAttemptsLog.push(...parsed.blockedAttemptsLog);
       if (Array.isArray(parsed.intentionsLog)) intentionsLog.push(...parsed.intentionsLog);
       if (parsed.pushSubscriptions) Object.assign(pushSubscriptions, parsed.pushSubscriptions);
@@ -116,7 +108,6 @@ function persistServerStore() {
     try {
       const data = {
         activeDevices,
-        phoneLinkSessions,
         blockedAttemptsLog: blockedAttemptsLog.slice(0, 200),
         intentionsLog: intentionsLog.slice(0, 200),
         pushSubscriptions,
@@ -130,39 +121,6 @@ function persistServerStore() {
 }
 
 loadServerStore();
-
-function checkClipboardTtl(session: any) {
-  if (session.sharedClipboard && session.lastClipboardSync) {
-    const elapsed = Date.now() - new Date(session.lastClipboardSync).getTime();
-    if (elapsed > 5 * 60 * 1000) { // 5 minutes TTL
-      session.sharedClipboard = '';
-      session.clipboardSender = '';
-      session.lastClipboardSync = null;
-    }
-  }
-}
-
-function getOrCreatePhoneLinkSession(pairingCode: string) {
-  if (!phoneLinkSessions[pairingCode]) {
-    phoneLinkSessions[pairingCode] = {
-      isLinked: false,
-      pairingCode,
-      phoneBattery: null,
-      isCharging: false,
-      phoneModel: 'غير مقترن',
-      wifiName: 'غير متصل',
-      isRinging: false,
-      focusShieldActive: false,
-      sharedClipboard: '',
-      clipboardSender: '',
-      lastClipboardSync: null,
-      lastHeartbeat: Date.now(),
-      notifications: []
-    };
-  }
-  checkClipboardTtl(phoneLinkSessions[pairingCode]);
-  return phoneLinkSessions[pairingCode];
-}
 
 // ==========================================
 // REST APIs FOR NATIVE DESKTOP (.EXE) & ANDROID (.APK) & PHONE LINK
@@ -460,143 +418,14 @@ app.post("/api/blocked-attempt", (req, res) => {
   res.json({ success: true, entry });
 });
 
-// ==========================================
-// 8. PHONE LINK REAL-TIME APIS (MICROSOFT PHONE LINK STYLE)
-// ==========================================
-
-// Get Phone Link live state
-app.get("/api/phonelink/state/:pairingCode", (req, res) => {
-  const { pairingCode } = req.params;
-  if (!isValidPairingCode(pairingCode)) {
-    return res.status(400).json({ error: "Invalid or missing pairingCode format (expected RQ-XXXXXX)" });
-  }
-  const session = getOrCreatePhoneLinkSession(pairingCode);
-  const secondsAgo = Math.floor((Date.now() - session.lastHeartbeat) / 1000);
-  
-  res.json({
-    success: true,
-    state: {
-      ...session,
-      lastPingSecondsAgo: secondsAgo
+// The legacy pairing-code-only REST API has no owner-bound device credential.
+app.use("/api/phonelink", rateLimit(40), (_req, res) => {
+  res.status(503).json({
+    error: {
+      code: "PHONE_LINK_AUTH_REQUIRED",
+      message: "PhoneLink REST is unavailable until owner-bound, revocable device credentials are configured."
     }
   });
-});
-
-// Dispatch Phone Link Commands (Ring Phone, Focus Lock Shield, Send Clipboard, Prayer Sync)
-app.post("/api/phonelink/command", rateLimit(40), (req, res) => {
-  const { pairingCode, command, payload } = req.body;
-  if (!isValidPairingCode(pairingCode)) {
-    return res.status(400).json({ error: "Invalid or missing pairingCode (expected RQ-XXXXXX)" });
-  }
-  const session = getOrCreatePhoneLinkSession(pairingCode);
-
-  session.lastHeartbeat = Date.now();
-
-  if (command === 'ring_phone') {
-    session.isRinging = true;
-    session.notifications.unshift({
-      id: `notif-${Date.now()}`,
-      title: '🔔 رنين البحث عن الهاتف (Find My Phone)',
-      body: 'تم تشغيل جرس الرنين من حاسوب الويندوز للعثور على مكان الهاتف.',
-      source: 'windows',
-      type: 'ring',
-      timestamp: new Date().toISOString(),
-      read: false
-    });
-  } else if (command === 'stop_ring') {
-    session.isRinging = false;
-  } else if (command === 'toggle_focus_shield') {
-    session.focusShieldActive = payload?.active !== undefined ? payload.active : !session.focusShieldActive;
-    session.notifications.unshift({
-      id: `notif-${Date.now()}`,
-      title: session.focusShieldActive ? '🛡️ درع التركيز المشدد مُفعّل' : '🔓 تم إيقاف درع التركيز',
-      body: session.focusShieldActive 
-        ? 'تم قفل تطبيقات التواصل والسوشيال ميديا على الهاتف من الحاسوب.' 
-        : 'تمت استعادة الوضع الطبيعي للتطبيقات.',
-      source: 'windows',
-      type: 'focus',
-      timestamp: new Date().toISOString(),
-      read: false
-    });
-  } else if (command === 'send_clipboard') {
-    session.sharedClipboard = String(payload?.text || '').slice(0, 5000);
-    session.clipboardSender = payload?.sender || 'windows';
-    session.lastClipboardSync = new Date().toISOString();
-    session.notifications.unshift({
-      id: `notif-${Date.now()}`,
-      title: '📋 تم نسخ نص في الحافظة المشتركة',
-      body: `نص جديد من ${payload?.sender === 'windows' ? 'الحاسوب' : 'الهاتف'}: "${session.sharedClipboard.slice(0, 35)}..."`,
-      source: payload?.sender || 'windows',
-      type: 'clipboard',
-      timestamp: new Date().toISOString(),
-      read: false
-    });
-  } else if (command === 'confirm_prayer') {
-    session.notifications.unshift({
-      id: `notif-${Date.now()}`,
-      title: '🕌 تم تأكيد الصلاة بمزامنة سحابية',
-      body: `تم تأكيد أداء صلاة (${payload?.prayerName || 'الفريضة'}) بنجاح وتحديث كافة الأجهزة.`,
-      source: payload?.sender || 'android',
-      type: 'prayer',
-      timestamp: new Date().toISOString(),
-      read: false
-    });
-  } else if (command === 'push_notification') {
-    session.notifications.unshift({
-      id: `notif-${Date.now()}`,
-      title: payload?.title || 'إشعار جديد',
-      body: payload?.body || '',
-      source: payload?.source || 'android',
-      type: payload?.type || 'reminder',
-      timestamp: new Date().toISOString(),
-      read: false
-    });
-  }
-
-  // Keep max 20 notifications
-  if (session.notifications.length > 20) {
-    session.notifications = session.notifications.slice(0, 20);
-  }
-  persistServerStore();
-
-  res.json({
-    success: true,
-    message: `Command ${command} processed`,
-    state: session
-  });
-});
-
-// Update Phone Link Telemetry / Heartbeat from Android device
-app.post("/api/phonelink/heartbeat", rateLimit(60), (req, res) => {
-  const { pairingCode, phoneBattery, isCharging, wifiName, phoneModel } = req.body;
-  if (!isValidPairingCode(pairingCode)) {
-    return res.status(400).json({ error: "Invalid or missing pairingCode (expected RQ-XXXXXX)" });
-  }
-  const session = getOrCreatePhoneLinkSession(pairingCode);
-
-  session.lastHeartbeat = Date.now();
-  if (phoneBattery !== undefined) session.phoneBattery = Number(phoneBattery);
-  if (isCharging !== undefined) session.isCharging = Boolean(isCharging);
-  if (wifiName) session.wifiName = String(wifiName).slice(0, 60);
-  if (phoneModel) session.phoneModel = String(phoneModel).slice(0, 60);
-  persistServerStore();
-
-  res.json({
-    success: true,
-    state: session
-  });
-});
-
-// Clear a specific notification
-app.post("/api/phonelink/notifications/dismiss", (req, res) => {
-  const { pairingCode, notifId } = req.body;
-  if (!isValidPairingCode(pairingCode)) {
-    return res.status(400).json({ error: "Invalid or missing pairingCode (expected RQ-XXXXXX)" });
-  }
-  const session = getOrCreatePhoneLinkSession(pairingCode);
-  session.notifications = session.notifications.filter((n: any) => n.id !== notifId);
-  persistServerStore();
-  res.json({ success: true, notifications: session.notifications });
 });
 
 // ==========================================
@@ -838,39 +667,20 @@ setInterval(async () => {
 }, 30000); // Check every 30 seconds
 
 // ==========================================
-// 10. REAL SYSTEM INSTALLER DOWNLOADS (.EXE & .APK)
+// 10. VERIFIED GITHUB RELEASE DOWNLOADS
 // ==========================================
-app.get("/api/download/windows-exe", (req, res) => {
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-  const host = req.get('host') || 'raqeeb.app';
-  const appUrl = `${protocol}://${host}`;
-  const exeBuffer = buildWindowsPeExe(appUrl);
-  
-  res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
-  res.setHeader('Content-Disposition', 'attachment; filename="Raqeeb-Setup.exe"');
-  res.setHeader('Content-Length', exeBuffer.length);
-  res.send(exeBuffer);
+app.get("/api/download/windows-exe", (_req, res) => {
+  res.redirect(302, "https://github.com/Abdelrazek402/raqeeb-app/releases/latest/download/Raqeeb-Setup.exe");
 });
 
-app.get("/api/download/android-apk", async (req, res) => {
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-  const host = req.get('host') || 'raqeeb.app';
-  const appUrl = `${protocol}://${host}`;
-  const apkBuffer = await buildAndroidApk(appUrl);
-  
-  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-  res.setHeader('Content-Disposition', 'attachment; filename="Raqeeb.apk"');
-  res.setHeader('Content-Length', apkBuffer.length);
-  res.send(apkBuffer);
+app.get("/api/download/android-apk", (_req, res) => {
+  res.redirect(302, "https://github.com/Abdelrazek402/raqeeb-app/releases/latest/download/Raqeeb.apk");
 });
 
 // ==========================================
 // VITE MIDDLEWARE & STATIC ASSETS SERVING
 // ==========================================
 async function startServer() {
-  // Pre-generate static installers for direct downloading
-  await preGenerateStaticInstallers();
-
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -5,8 +5,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   const countdown = document.getElementById('prayer-countdown');
   const { protectionEnabled = true } = await chrome.storage.local.get('protectionEnabled');
   toggle.checked = protectionEnabled;
-  count.textContent = '529';
   status.textContent = protectionEnabled ? 'نشط' : 'متوقف';
+  try {
+    const response = await fetch(chrome.runtime.getURL('rules.json'));
+    if (!response.ok) throw new Error(`Could not load rules.json: ${response.status}`);
+    const rules = await response.json();
+    if (!Array.isArray(rules)) throw new Error('rules.json must contain an array.');
+    count.textContent = String(rules.length);
+  } catch (error) {
+    console.error('Failed to load the extension rule count:', error);
+    count.textContent = '!';
+    count.title = 'تعذر تحميل عدد قواعد الحجب';
+  }
   toggle.addEventListener('change', async () => {
     await chrome.runtime.sendMessage({ type: 'setProtection', enabled: toggle.checked });
     status.textContent = toggle.checked ? 'نشط' : 'متوقف';
