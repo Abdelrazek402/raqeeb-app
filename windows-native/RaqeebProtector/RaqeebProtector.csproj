@@ -10,4 +10,11 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <EmbeddedResource Include="blocked-domains.txt" LogicalName="RaqeebProtector.BlockedDomains.txt" />
+    <EmbeddedResource Include="wwwroot-assets.zip"
+                      LogicalName="RaqeebProtector.WebAssets.zip"
+                      Condition="Exists('wwwroot-assets.zip')" />
+  </ItemGroup>
 </Project>

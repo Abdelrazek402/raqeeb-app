@@ -72,15 +72,29 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run prepare:windows
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - run: dotnet publish windows-native/RaqeebProtector/RaqeebProtector.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o windows-native/publish
-      - run: New-Item -ItemType Directory -Force public/downloads | Out-Null; Copy-Item windows-native/publish/RaqeebProtector.exe public/downloads/Raqeeb-Setup.exe
+      - name: Publish self-contained WebView2 desktop app
+        run: dotnet publish windows-native/RaqeebProtector/RaqeebProtector.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o windows-native/publish
+      - name: Stage Windows release executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force public/downloads | Out-Null
+          Copy-Item windows-native/publish/RaqeebProtector.exe public/downloads/Raqeeb-Setup.exe
+          if ((Get-Item public/downloads/Raqeeb-Setup.exe).Length -le 0) { throw 'The Windows executable was not published.' }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-protector
           path: public/downloads/Raqeeb-Setup.exe
+          if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

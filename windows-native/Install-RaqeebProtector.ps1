@@ -6,7 +6,7 @@ $backup = "$hosts.raqeeb.bak"
 $domains = Join-Path $PSScriptRoot 'RaqeebProtector\blocked-domains.txt'
 $marker = '# Raqeeb managed blocklist'
 if (-not (Test-Path $domains)) { throw "Missing blocked-domains.txt" }
-Copy-Item $hosts $backup -Force
+if ((Test-Path $hosts) -and -not (Test-Path $backup)) { Copy-Item $hosts $backup }
 $content = if (Test-Path $hosts) { Get-Content $hosts -Raw } else { '' }
 $start = $content.IndexOf($marker, [StringComparison]::Ordinal)
 if ($start -ge 0) {

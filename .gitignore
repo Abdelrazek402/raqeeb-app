@@ -16,6 +16,8 @@ build/
 public/downloads/
 public/downloads/*.exe
 public/downloads/*.apk
+windows-native/RaqeebProtector/wwwroot/
+windows-native/RaqeebProtector/wwwroot-assets.zip
 *.tar.gz
 coverage/
 .DS_Store
