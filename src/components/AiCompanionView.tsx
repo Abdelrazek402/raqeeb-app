@@ -32,9 +32,45 @@ const QUICK_PROMPTS = [
   { text: 'كيف أستحضر الخشوع وأداوم على صلاة الفجر؟', icon: '🕌' },
 ];
 
+interface CompanionContext {
+  streakDays: number;
+  istighfarCount: number;
+  quranPagesRead: number;
+  blockedAttemptsCount: number;
+  distractionTypes: string;
+  confirmedPrayersCount: number;
+}
+
+function createOfflineReply(question: string, context: CompanionContext): string {
+  const query = question.toLowerCase();
+  const progress = [
+    context.streakDays > 1 ? `ثباتك في اليوم ${context.streakDays} يستحق أن تبني عليه.` : '',
+    context.istighfarCount > 0 ? `وقد استغفرت ${context.istighfarCount} مرة اليوم.` : '',
+    context.quranPagesRead > 0 ? `وقرأت ${context.quranPagesRead} صفحة من القرآن.` : '',
+  ].filter(Boolean).join(' ');
+  let guidance: string;
+
+  if (['بصر', 'شهو', 'حرام', 'فتن', 'إباح', 'محتوى ضار'].some(term => query.includes(term))) {
+    guidance = 'غيّر مكانك الآن وأغلق ما يشتت نظرك، ثم اشغل يديك بخطوة نافعة قصيرة. خذ نفساً هادئاً واستعن بالله؛ لا يلزم أن تحسم كل شيء الآن، فقط اختر الخطوة الصحيحة التالية.';
+  } else if (['تشتت', 'تركيز', 'تسويف', 'وقت', 'مماطل', 'ني'].some(term => query.includes(term))) {
+    guidance = 'اكتب مهمة واحدة صغيرة تستطيع إنهاءها خلال عشر دقائق، أبعد الهاتف أو التبويبات غير اللازمة، وابدأ بها فوراً. بعد انتهائها خذ استراحة قصيرة وجدّد نيتك قبل المهمة التالية.';
+  } else if (['ذنب', 'انتكاس', 'وقعت', 'ضعف', 'توب'].some(term => query.includes(term))) {
+    guidance = 'لا تجعل التعثر سبباً لليأس أو لتأجيل الرجوع. توقف عن السبب، واستغفر الله بصدق، ثم أصلح ما تستطيع وابدأ عملاً صالحاً صغيراً الآن. التوبة بابها مفتوح، وخطوتك التالية أهم من لوم نفسك.';
+  } else if (['صلا', 'فجر', 'خشوع', 'كسل'].some(term => query.includes(term))) {
+    guidance = 'ابدأ بالاستعداد العملي: توضأ، أبعد ما يشغلك، وتهيأ للصلاة في وقتها. اختر عملاً واحداً يسهّل الصلاة القادمة، مثل ضبط منبه أو تجهيز مكان الصلاة، ولا تنتظر أن يأتي النشاط وحده.';
+  } else if (['قرآن', 'ورد', 'ختم', 'تلاو'].some(term => query.includes(term))) {
+    guidance = 'اجعل لك ورداً يسيراً ثابتاً، ولو صفحة واحدة، واقرأها بتأنٍّ مع تدبر معنى آية. الاستمرار على القليل خير من خطة كبيرة تنقطع.';
+  } else {
+    guidance = 'ابدأ بتسمية ما يشغلك في جملة واحدة، ثم اختر له خطوة نافعة صغيرة تنفذها الآن. خذ بالأسباب، واستعن بالله، ولا تقسُ على نفسك إن احتجت إلى إعادة المحاولة.';
+  }
+
+  return `${guidance}${progress ? `\n\n${progress}` : ''}\n\nهذه إجابة إرشادية محلية تعمل دون اتصال بالإنترنت.`;
+}
+
 export const AiCompanionView: React.FC<AiCompanionViewProps> = ({ stats, prayers, blockedAttempts = [] }) => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [responseMode, setResponseMode] = useState<'ready' | 'local' | 'online' | 'fallback'>('ready');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -77,7 +113,7 @@ export const AiCompanionView: React.FC<AiCompanionViewProps> = ({ stats, prayers
 
     const categories = { 'تواصل اجتماعي': 0, 'فيديو وترفيه': 0, 'ألعاب': 0, 'محتوى ضار': 0, 'أخرى': 0 };
     blockedAttempts.forEach(log => {
-      const url = log.url.toLowerCase();
+      const url = log.urlOrQuery.toLowerCase();
       if (url.includes('facebook') || url.includes('instagram') || url.includes('tiktok') || url.includes('twitter')) categories['تواصل اجتماعي']++;
       else if (url.includes('youtube') || url.includes('netflix') || url.includes('twitch')) categories['فيديو وترفيه']++;
       else if (url.includes('game') || url.includes('roblox') || url.includes('pubg')) categories['ألعاب']++;
@@ -85,7 +121,7 @@ export const AiCompanionView: React.FC<AiCompanionViewProps> = ({ stats, prayers
       else categories['أخرى']++;
     });
     
-    const userContext = {
+    const userContext: CompanionContext = {
       streakDays: stats?.streakDays ?? 1,
       istighfarCount: stats?.istighfarCount ?? 0,
       quranPagesRead: stats?.quranPagesRead ?? 0,
@@ -106,18 +142,23 @@ export const AiCompanionView: React.FC<AiCompanionViewProps> = ({ stats, prayers
         }),
       });
       
+      if (!response.ok) throw new Error(`AI companion request failed with status ${response.status}`);
       const data = await response.json();
-      
+      if (typeof data.text !== 'string' || !data.text.trim()) {
+        throw new Error('AI companion returned an empty response');
+      }
+      setResponseMode(data.isFallback ? 'fallback' : 'online');
       setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         sender: 'ai',
-        text: data.text || 'بارك الله فيك، استعن بالله ولا تعجز وتذكر أن الله يبسط يده بالليل والنهار.'
+        text: data.text
       }]);
     } catch {
+      setResponseMode('local');
       setMessages(prev => [...prev, {
         id: `ai-err-${Date.now()}`,
         sender: 'ai',
-        text: 'استعن بالله واذكر ربك، وأنا هنا معك دوماً لشد أزرك وتثبيت فؤادك أمام ما تشعر به.'
+        text: createOfflineReply(textToSend, userContext)
       }]);
     } finally {
       setIsTyping(false);
@@ -157,8 +198,18 @@ export const AiCompanionView: React.FC<AiCompanionViewProps> = ({ stats, prayers
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold text-white font-['Amiri',serif]">الرفيق الرقمي الواعي (AI Companion)</h2>
-              <span className="text-[10px] bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 px-2 py-0.5 rounded-md font-bold">
-                متصل ومباشر 🟢
+              <span className={`text-[10px] border px-2 py-0.5 rounded-md font-bold ${
+                responseMode === 'online'
+                  ? 'bg-emerald-500/30 border-emerald-400/40 text-emerald-200'
+                  : 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+              }`}>
+                {responseMode === 'online'
+                  ? 'متصل ومباشر 🟢'
+                  : responseMode === 'fallback'
+                    ? 'إرشاد احتياطي'
+                    : responseMode === 'local'
+                      ? 'إرشاد محلي دون إنترنت'
+                      : 'إرشاد محلي متاح'}
               </span>
             </div>
             <p className="text-xs text-teal-200/90 flex items-center gap-2 mt-0.5">
