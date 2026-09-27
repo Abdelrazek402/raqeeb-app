@@ -31,6 +31,7 @@ interface AthkarNotificationModalProps {
   settings: AthkarReminderSettings;
   onSave: (newSettings: AthkarReminderSettings) => void;
   pairingCode: string;
+  isGuest: boolean;
 }
 
 export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = ({
@@ -38,7 +39,8 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
   onClose,
   settings,
   onSave,
-  pairingCode
+  pairingCode,
+  isGuest
 }) => {
   const [localSettings, setLocalSettings] = useState<AthkarReminderSettings>({ ...settings });
   const [permission, setPermission] = useState<string>(() => getNotificationPermission());
@@ -60,6 +62,7 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
   ];
 
   const handleRequestPermission = async () => {
+    if (isGuest) return;
     const res = await requestPushPermission();
     setPermission(res);
     if (res === 'granted') {
@@ -73,7 +76,9 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
     setIsSaving(true);
     try {
       onSave(localSettings);
-      await syncAthkarSettingsToServer(pairingCode, localSettings);
+      if (!isGuest) {
+        await syncAthkarSettingsToServer(pairingCode, localSettings);
+      }
       sounds.playSuccessTone();
       onClose();
     } catch (e) {
@@ -84,6 +89,7 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
   };
 
   const handleTestNotification = async (type: 'morning' | 'evening') => {
+    if (isGuest) return;
     setTestStatus({ loading: true, message: 'جاري إرسال التنبيه التجريبي عبر الخادم...' });
     if (permission !== 'granted') {
       const p = await requestPushPermission();
@@ -173,7 +179,9 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
                       : 'تنبيهات الخلفية بحاجة إلى إذن'}
                 </h4>
                 <p className="text-xs opacity-90 mt-0.5 leading-relaxed">
-                  {permission === 'granted'
+                  {isGuest
+                    ? 'في وضع الضيف تُحفظ إعدادات الأذكار على هذا الجهاز فقط، ولا تتوفر الإشعارات السحابية.'
+                    : permission === 'granted'
                     ? 'الخدمة السحابية نشطة وترسل إشعارات Web Push لجهازك في مواعيدك حتى عند إغلاق التطبيق.'
                     : permission === 'denied'
                       ? 'يرجى النقر على قفل المتصفح بجانب شريط العنوان والسماح بالإشعارات.'
@@ -182,7 +190,7 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
               </div>
             </div>
 
-            {permission !== 'granted' && (
+            {!isGuest && permission !== 'granted' && (
               <button
                 onClick={handleRequestPermission}
                 className="shrink-0 w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
@@ -346,7 +354,7 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
             </div>
           </div>
 
-          {/* Instant Test Section */}
+          {!isGuest && (
           <div className="p-4 bg-teal-50/60 border border-teal-200 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
@@ -391,6 +399,7 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
               </div>
             )}
           </div>
+          )}
 
         </div>
 
@@ -411,11 +420,11 @@ export const AthkarNotificationModal: React.FC<AthkarNotificationModalProps> = (
             className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isSaving ? (
-              <span>جاري الحفظ والمزامنة...</span>
+              <span>{isGuest ? 'جاري الحفظ...' : 'جاري الحفظ والمزامنة...'}</span>
             ) : (
               <>
                 <Check className="w-4 h-4" />
-                حفظ الإعدادات وتفعيل الخلفية
+                {isGuest ? 'حفظ الإعدادات محلياً' : 'حفظ الإعدادات وتفعيل الخلفية'}
               </>
             )}
           </button>

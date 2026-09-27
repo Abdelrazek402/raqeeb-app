@@ -17,11 +17,11 @@ export function useCloudSync(
   prayers: any,
   setPrayers: any
 ) {
-  const { user } = useAuth();
+  const { user, isGuest } = useAuth();
 
   // Load from cloud on mount
   useEffect(() => {
-    if (!user || !db) return;
+    if (isGuest || !user || !db) return;
     
     const userRef = doc(db, 'users', user.uid);
     const unsubscribe = onSnapshot(userRef, (docSnap) => {
@@ -36,11 +36,11 @@ export function useCloudSync(
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isGuest]);
 
   // Save to cloud on change (debounced)
   useEffect(() => {
-    if (!user || !db) return;
+    if (isGuest || !user || !db) return;
     
     const timer = setTimeout(async () => {
       try {
@@ -60,5 +60,5 @@ export function useCloudSync(
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [user, dailyStats, monitoredApps, blockedAttempts, protectionLevel, customBlockedDomains]);
+  }, [user, isGuest, dailyStats, monitoredApps, blockedAttempts, protectionLevel, customBlockedDomains]);
 }

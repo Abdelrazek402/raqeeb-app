@@ -4,7 +4,7 @@ import { ShieldCheck, LogIn, Loader2 } from 'lucide-react';
 import LogoImage from '../assets/images/raqeeb_logo_1788773748138.jpg';
 
 export const AuthScreen: React.FC = () => {
-  const { signInWithGoogle, loading } = useAuth();
+  const { signInWithGoogle, continueAsGuest, loading } = useAuth();
   const [isSigningIn, setIsSigningIn] = React.useState(false);
 
   const handleLogin = async () => {
@@ -62,6 +62,14 @@ export const AuthScreen: React.FC = () => {
                 <span>المتابعة باستخدام حساب Google</span>
               </>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={continueAsGuest}
+            className="w-full flex items-center justify-center gap-3 bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 px-4 rounded-xl transition-all"
+          >
+            <LogIn className="w-5 h-5" />
+            <span>الدخول المباشر للتطبيق</span>
           </button>
         </div>
 

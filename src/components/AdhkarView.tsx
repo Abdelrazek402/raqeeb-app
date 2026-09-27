@@ -31,6 +31,7 @@ interface AdhkarViewProps {
   pairingCode?: string;
   athkarSettings?: AthkarReminderSettings;
   onUpdateAthkarSettings?: (newSettings: AthkarReminderSettings) => void;
+  isGuest?: boolean;
 }
 
 type TabType = 'morning' | 'evening' | 'post_prayer' | 'sleep' | 'tasbih';
@@ -50,7 +51,8 @@ export const AdhkarView: React.FC<AdhkarViewProps> = ({
   initialCategory,
   pairingCode = 'RQ-LOCAL',
   athkarSettings = INITIAL_ATHKAR_SETTINGS,
-  onUpdateAthkarSettings
+  onUpdateAthkarSettings,
+  isGuest = false
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>(() => initialCategory || 'morning');
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
@@ -480,6 +482,7 @@ export const AdhkarView: React.FC<AdhkarViewProps> = ({
           }
         }}
         pairingCode={pairingCode}
+        isGuest={isGuest}
       />
 
     </div>

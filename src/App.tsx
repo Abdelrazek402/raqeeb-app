@@ -84,6 +84,7 @@ import { downloadSpiritualReport, ReportPeriodType } from './utils/reportExport'
 import { BellRing, Copy, X, Bell } from 'lucide-react';
 
 function MainApp() {
+  const { isGuest } = useAuth();
 
   // Navigation
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
@@ -234,15 +235,17 @@ function MainApp() {
   const handleUpdateAthkarSettings = (newSettings: AthkarReminderSettings) => {
     setAthkarSettings(newSettings);
     saveStored(STORAGE_KEYS.ATHKAR_SETTINGS, newSettings);
-    syncAthkarSettingsToServer(syncState.pairingCode, newSettings).catch(() => {});
+    if (!isGuest) {
+      syncAthkarSettingsToServer(syncState.pairingCode, newSettings).catch(() => {});
+    }
   };
 
   // Sync Athkar settings to server push daemon on initial load
   useEffect(() => {
-    if (syncState.pairingCode) {
+    if (!isGuest && syncState.pairingCode) {
       syncAthkarSettingsToServer(syncState.pairingCode, athkarSettings).catch(() => {});
     }
-  }, [syncState.pairingCode]);
+  }, [isGuest, syncState.pairingCode]);
 
   // Foreground/Active Tab Timer for Athkar Reminders
   useEffect(() => {
@@ -491,7 +494,8 @@ function MainApp() {
       if (matching && !matching.confirmed) {
         handleTogglePrayer(matching.id);
       }
-    }
+    },
+    !isGuest
   );
 
   // Cloud Sync
@@ -1167,6 +1171,7 @@ function MainApp() {
             pairingCode={syncState.pairingCode}
             athkarSettings={athkarSettings}
             onUpdateAthkarSettings={handleUpdateAthkarSettings}
+            isGuest={isGuest}
           />
         )}
 
@@ -1475,13 +1480,13 @@ function MainApp() {
 }
 
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, isGuest, loading } = useAuth();
   
   if (loading) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><div className="w-8 h-8 border-3 border-teal-600 border-t-transparent rounded-full animate-spin"></div></div>;
   }
   
-  if (!user) {
+  if (!user && !isGuest) {
     return <AuthScreen />;
   }
   
