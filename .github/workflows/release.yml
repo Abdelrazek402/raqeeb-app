@@ -105,6 +105,11 @@ jobs:
         with:
           path: release
           merge-multiple: true
+      - name: Validate release assets
+        run: |
+          test -s release/Raqeeb.apk
+          test -s release/Raqeeb-Setup.exe
+          test -s release/public/downloads/Raqeeb-Extension.zip
       - uses: actions/upload-artifact@v4
         with:
           name: Raqeeb-release-bundle
@@ -114,4 +119,4 @@ jobs:
           files: |
             release/Raqeeb.apk
             release/Raqeeb-Setup.exe
-            release/Raqeeb-Extension.zip
+            release/public/downloads/Raqeeb-Extension.zip
