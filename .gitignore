@@ -1,10 +1,14 @@
 node_modules
 node_modules/
 node_modules/**
-android
-android/
-android/app/release.keystore
+# Android source is tracked; keep secrets and generated artifacts out of Git.
+android/app/google-services.json
+*.jks
 *.keystore
+.gradle/
+local.properties
+*.apk
+*.aab
 windows
 windows/
 desktop-native
