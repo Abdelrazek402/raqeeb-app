@@ -10,6 +10,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
@@ -43,6 +45,7 @@ class RaqeebAccessibilityService : AccessibilityService() {
         private const val KEY_BLOCKED_PACKAGES = "key_blocked_packages"
         private const val NOTIFICATION_CHANNEL_ID = "raqeeb_blocked_app_attempts"
         private const val NOTIFICATION_ID_BASE = 5200
+        private const val BLOCKER_LAUNCH_RETRY_DELAY_MS = 500L
         private val _serviceConnected = MutableStateFlow(false)
         val serviceConnected: StateFlow<Boolean> = _serviceConnected.asStateFlow()
 
@@ -106,6 +109,7 @@ class RaqeebAccessibilityService : AccessibilityService() {
     private var currentForegroundPackage: String? = null
     private var activeBlockedPackage: String? = null
     private var lastEventTimestamp: Long = 0
+    private val blockerRetryHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
@@ -128,6 +132,11 @@ class RaqeebAccessibilityService : AccessibilityService() {
             val foregroundPackage = event.packageName?.toString() ?: return
             val foregroundClass = event.className?.toString() ?: ""
             val currentTime = System.currentTimeMillis()
+            val previousForegroundPackage = currentForegroundPackage
+            val previousEventTimestamp = lastEventTimestamp
+
+            currentForegroundPackage = foregroundPackage
+            lastEventTimestamp = currentTime
 
             // Skip internal Raqeeb app events
             if (foregroundPackage == packageName) {
@@ -137,17 +146,20 @@ class RaqeebAccessibilityService : AccessibilityService() {
             val isRestricted = isMonitoredApp(foregroundPackage)
             if (!isRestricted) {
                 activeBlockedPackage = null
-            } else if (activeBlockedPackage == foregroundPackage) {
+                blockerRetryHandler.removeCallbacksAndMessages(null)
+                return
+            }
+
+            if (activeBlockedPackage == foregroundPackage) {
                 return
             }
 
             // Debounce rapid duplicate events
-            if (foregroundPackage == currentForegroundPackage && (currentTime - lastEventTimestamp) < 800) {
+            if (foregroundPackage == previousForegroundPackage &&
+                currentTime - previousEventTimestamp < 800
+            ) {
                 return
             }
-
-            currentForegroundPackage = foregroundPackage
-            lastEventTimestamp = currentTime
 
             Log.i(TAG, "Foreground App Detected: $foregroundPackage (Class: $foregroundClass)")
 
@@ -161,10 +173,9 @@ class RaqeebAccessibilityService : AccessibilityService() {
                     packageName = foregroundPackage,
                     wasSelectedForBlocking = true,
                     timestamp = currentTime
-                    )
-
-                showBlockedAttemptNotification(foregroundPackage)
+                )
                 executeBlockingAction(foregroundPackage)
+                showBlockedAttemptNotification(foregroundPackage)
             }
         }
     }
@@ -174,7 +185,27 @@ class RaqeebAccessibilityService : AccessibilityService() {
     }
 
     private fun executeBlockingAction(blockedPackage: String) {
-        performGlobalAction(GLOBAL_ACTION_HOME)
+        launchBlockerActivity(blockedPackage)
+        blockerRetryHandler.postDelayed({
+            val stillInBlockedApp = currentForegroundPackage == blockedPackage
+            val blockerIsVisible = BlockerActivity.isShowingPackage(blockedPackage)
+            if (stillInBlockedApp && !blockerIsVisible && activeBlockedPackage == blockedPackage) {
+                Log.w(TAG, "BlockerActivity was not foregrounded; retrying once for $blockedPackage")
+                launchBlockerActivity(blockedPackage)
+                blockerRetryHandler.postDelayed({
+                    if (currentForegroundPackage == blockedPackage &&
+                        !BlockerActivity.isShowingPackage(blockedPackage) &&
+                        activeBlockedPackage == blockedPackage
+                    ) {
+                        Log.e(TAG, "BlockerActivity did not foreground after retry; returning to Home.")
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                    }
+                }, BLOCKER_LAUNCH_RETRY_DELAY_MS)
+            }
+        }, BLOCKER_LAUNCH_RETRY_DELAY_MS)
+    }
+
+    private fun launchBlockerActivity(blockedPackage: String) {
         try {
             val blockingIntent = Intent(this, BlockerActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -182,9 +213,10 @@ class RaqeebAccessibilityService : AccessibilityService() {
                 putExtra("BLOCKED_TIMESTAMP", System.currentTimeMillis())
             }
             startActivity(blockingIntent)
-            Log.i(TAG, "Launched BlockerActivity for $blockedPackage")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch BlockerActivity for $blockedPackage", e)
+            Log.i(TAG, "Requested BlockerActivity for $blockedPackage")
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "Failed to launch BlockerActivity for $blockedPackage; returning to Home", error)
+            performGlobalAction(GLOBAL_ACTION_HOME)
         }
     }
 
@@ -243,6 +275,7 @@ class RaqeebAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        blockerRetryHandler.removeCallbacksAndMessages(null)
         _serviceConnected.value = false
         Log.w(TAG, "Raqeeb Accessibility Service was interrupted.")
     }
@@ -255,6 +288,7 @@ class RaqeebAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        blockerRetryHandler.removeCallbacksAndMessages(null)
         _serviceConnected.value = false
         super.onDestroy()
     }

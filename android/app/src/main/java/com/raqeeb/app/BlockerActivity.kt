@@ -15,6 +15,14 @@ import com.raqeeb.app.databinding.ActivityBlockerBinding
 class BlockerActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityBlockerBinding
+    private var blockedPackage: String? = null
+
+    companion object {
+        @Volatile
+        private var visibleBlockedPackage: String? = null
+
+        fun isShowingPackage(packageName: String): Boolean = visibleBlockedPackage == packageName
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -23,11 +31,7 @@ class BlockerActivity : AppCompatActivity() {
         binding = ActivityBlockerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Receive details from the blocking intent
-        val blockedPackage = intent.getStringExtra("BLOCKED_PACKAGE")
-        if (!blockedPackage.isNullOrEmpty()) {
-            binding.tvBlockedPackageName.text = "تم إيقاف تطبيق ($blockedPackage) لحفظ وقتك وغض بصرك.\nاستعن بالله واذكر ربك: أستغفر الله العظيم وأتوب إليه."
-        }
+        renderBlockedPackage(intent)
 
         // 'Go Back' button returns the user directly to the Home Screen
         binding.btnGoBack.setOnClickListener {
@@ -39,8 +43,32 @@ class BlockerActivity : AppCompatActivity() {
      * Intercept the back button to prevent the user from returning into the restricted application.
      */
     override fun onBackPressed() {
-        super.onBackPressed()
         returnToHomeScreen()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        renderBlockedPackage(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        visibleBlockedPackage = blockedPackage
+    }
+
+    override fun onPause() {
+        if (visibleBlockedPackage == blockedPackage) visibleBlockedPackage = null
+        super.onPause()
+    }
+
+    private fun renderBlockedPackage(intent: Intent) {
+        blockedPackage = intent.getStringExtra("BLOCKED_PACKAGE")
+        binding.tvBlockedPackageName.text = if (!blockedPackage.isNullOrEmpty()) {
+            "تم اعتراض محاولة فتح التطبيق ($blockedPackage) لحفظ وقتك وغض بصرك.\nاستعن بالله واذكر ربك: أستغفر الله العظيم وأتوب إليه."
+        } else {
+            "تم اعتراض محاولة فتح تطبيق محدد للحجب لحفظ وقتك وغض بصرك.\nاستعن بالله واذكر ربك: أستغفر الله العظيم وأتوب إليه."
+        }
     }
 
     /**

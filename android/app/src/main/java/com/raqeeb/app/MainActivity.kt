@@ -61,11 +61,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         phoneLink = PhoneLinkManager.getInstance(this)
         firebaseAuth = FirebaseAuth.getInstance()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        }
         val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
@@ -149,6 +144,15 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnEnableUsageAccess.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+        binding.btnEnableNotifications.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                Toast.makeText(this, "إذن الإشعارات مفعّل بالفعل ✓", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -253,6 +257,35 @@ class MainActivity : AppCompatActivity() {
 
         val blockedAppsCount = RaqeebAccessibilityService.getMonitoredApps(this).size
         val protectionReady = isAccessibilityActive && blockedAppsCount > 0
+        binding.btnEnableOverlay.visibility =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                android.view.View.VISIBLE
+            } else {
+                android.view.View.GONE
+            }
+        binding.btnEnableAccessibility.visibility =
+            if (isAccessibilityActive) android.view.View.GONE else android.view.View.VISIBLE
+        binding.btnEnableUsageAccess.visibility =
+            if (UsageStatsTracker.hasUsageAccess(this)) android.view.View.GONE else android.view.View.VISIBLE
+        binding.btnEnableNotifications.visibility =
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            ) {
+                android.view.View.GONE
+            } else {
+                android.view.View.VISIBLE
+            }
+        binding.permissionActionsContainer.visibility =
+            if (binding.btnEnableOverlay.visibility == android.view.View.VISIBLE ||
+                binding.btnEnableAccessibility.visibility == android.view.View.VISIBLE ||
+                binding.btnEnableUsageAccess.visibility == android.view.View.VISIBLE ||
+                binding.btnEnableNotifications.visibility == android.view.View.VISIBLE
+            ) {
+                android.view.View.VISIBLE
+            } else {
+                android.view.View.GONE
+            }
+
         binding.indicatorStatus.setBackgroundColor(
             android.graphics.Color.parseColor(if (protectionReady) "#10b981" else "#f59e0b")
         )
@@ -300,7 +333,7 @@ class MainActivity : AppCompatActivity() {
                 val formattedTime = timeFormatter.format(Date(event.timestamp))
 
                 binding.tvLastBlockedPackage.text = event.packageName
-                binding.tvLastBlockedTime.text = "تم الحظر والتذكير في: $formattedTime"
+                binding.tvLastBlockedTime.text = "تم رصد المحاولة في: $formattedTime"
                 binding.indicatorStatus.setBackgroundColor(android.graphics.Color.parseColor("#ef4444")) // Red alert indicator
 
                 Toast.makeText(

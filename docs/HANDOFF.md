@@ -26,7 +26,11 @@ Before the latest local changes, the blocker did **not** use fabricated foregrou
 
 The current source queries installed launcher activities, lets the user select/unselect them, persists package IDs locally, and feeds the selected set to the real window-event comparison. It prevents reopening the blocker repeatedly for the same foreground app, displays service/selection status from current state, and sends a local notification for a real detected attempt. On Android 13+, notifications require the user to grant `POST_NOTIFICATIONS`; if denied, the service logs that the notification was skipped. The event shown in the UI is in-memory for the current process, not a durable attempt log.
 
-**Unverified:** no Android device/emulator was attached. Install the debug APK, grant Accessibility and notification permissions, select a harmless test app, open it, verify Home/BlockerActivity/notification, remove it from the list, and verify it opens normally. Do not treat a successful APK build as this test.
+After the user reported that a real-device attempt produced only the alert, the launch sequence was changed to request `BlockerActivity` before any Home action. It retries once if the blocked package remains foreground and the activity has not become visible; if the second attempt still fails, it returns Home as a fail-closed fallback. Repeated intents update the visible blocked-app name, and Back returns Home without first finishing the blocker. The Android 13+ notification permission is no longer requested automatically on every app start; granted setup actions are hidden and the usage summary is shown in the main card.
+
+**Unverified:** no authorized Android device is currently attached, so the revised blocker has only passed compilation. Reconnect/authorize the phone, install the new debug APK, grant Accessibility, select a harmless test app, open it, verify `BlockerActivity` appears (not only the notification), press Back and verify the blocked app does not reopen, then remove it from the list and verify it opens normally. Also verify that granting permissions removes their setup actions and subsequent app starts open the dashboard without an OS permission prompt. Do not treat a successful APK build as these tests.
+
+Search-field keyword monitoring and forced SafeSearch DNS/VPN have not been added. They remain out of scope until the user chooses an explicit content-control approach; image/video analysis is excluded.
 
 ### Android UsageStats
 
