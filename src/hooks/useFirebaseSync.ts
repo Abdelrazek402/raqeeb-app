@@ -1,5 +1,15 @@
 import { useEffect, useState, useRef, useCallback, type Dispatch, type SetStateAction } from 'react';
-import { doc, onSnapshot, setDoc, getDoc, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  getDoc,
+  serverTimestamp,
+  Timestamp,
+  writeBatch
+} from 'firebase/firestore';
 import { db, sanitizeForFirestore } from '../utils/firebase';
 import { DeviceSyncHubState, PhoneLinkNotification, DeviceInfo, DailyStats, PrayerInfo, BlockedAttempt } from '../types';
 import { sounds } from '../utils/audio';
@@ -473,6 +483,78 @@ export function useFirebaseSync(
     const sender = currentDeviceTypeRef.current;
 
     try {
+      const androidCommand = sender === 'windows'
+        ? command === 'ring_phone'
+          ? { action: 'ring', payload: { durationSeconds: 15 } }
+          : command === 'stop_ring'
+            ? { action: 'stop_ring', payload: {} }
+            : command === 'toggle_focus_shield'
+              ? { action: 'toggle_focus_shield', payload: { active: Boolean(payload?.active) } }
+              : command === 'send_clipboard'
+                ? { action: 'send_clipboard', payload: { text: String(payload?.text || '').slice(0, 4096) } }
+                : null
+        : null;
+      let directCommandQueued = false;
+      if (androidCommand) {
+        const devices = await getDocs(collection(db, 'users', ownerUid, 'phonelinkDevices'));
+        const androidDevices = devices.docs.filter(device =>
+          device.data().ownerUid === ownerUid && device.data().platform === 'android'
+        );
+        if (androidDevices.length === 0) {
+          throw new Error('No Android PhoneLink device is registered to this account.');
+        }
+        await Promise.all(androidDevices.map(async device => {
+          const commandRef = doc(collection(
+            db,
+            'users',
+            ownerUid,
+            'phonelinkDevices',
+            device.id,
+            'commands'
+          ));
+          await setDoc(commandRef, {
+            ownerUid,
+            deviceId: device.id,
+            commandId: commandRef.id,
+            action: androidCommand.action,
+            payload: androidCommand.payload,
+            status: 'pending',
+            createdAt: serverTimestamp(),
+            expiresAt: Timestamp.fromDate(new Date(Date.now() + 2 * 60 * 1000)),
+            createdByUid: ownerUid
+          });
+        }));
+        directCommandQueued = true;
+      }
+
+      if (directCommandQueued) {
+        const title = command === 'ring_phone'
+          ? '🔔 طلب رنين الهاتف'
+          : command === 'toggle_focus_shield'
+            ? (payload?.active ? '🛡️ طلب تفعيل درع التركيز' : '🔓 طلب إيقاف درع التركيز')
+            : command === 'send_clipboard'
+              ? '📋 طلب مشاركة نص للحافظة'
+              : 'تم إرسال طلب إلى هاتف Android';
+        const notification: PhoneLinkNotification = {
+          id: `request_${Date.now()}`,
+          title,
+          body: 'تم إنشاء طلب مؤقت؛ حالة التنفيذ لا تتأكد إلا من ACK العميل، وليس من نتيجة موثوقة من الخادم.',
+          source: sender,
+          type: command === 'ring_phone' ? 'ring' : command === 'send_clipboard' ? 'clipboard' : 'focus',
+          timestamp: new Date().toISOString(),
+          read: false
+        };
+        setSyncState(prev => ({
+          ...prev,
+          phoneLink: {
+            ...prev.phoneLink,
+            notifications: [notification, ...(prev.phoneLink.notifications || [])].slice(0, 30)
+          }
+        }));
+        setIsCloudConnected(true);
+        return;
+      }
+
       const snap = await getDoc(sessionRef);
       if (!snap.exists() || snap.data().userId !== ownerUid) {
         throw new Error('The pairing session is unavailable or belongs to another account.');
@@ -484,11 +566,10 @@ export function useFirebaseSync(
       let updatedPhoneLink = { ...currentPhoneLink };
 
       if (command === 'ring_phone') {
-        updatedPhoneLink.isRinging = true;
         const newNotif: PhoneLinkNotification = {
           id: `ring_${Date.now()}`,
-          title: '🔔 تنبيه رنين مباشر',
-          body: 'طلب الحاسوب رنين الهاتف لمساعدتك في العثور عليه.',
+          title: '🔔 طلب رنين الهاتف',
+          body: 'تم طلب رنين الهاتف؛ حالة التنفيذ لا تتأكد إلا من ACK الجهاز.',
           source: 'windows',
           type: 'ring',
           timestamp: new Date().toISOString(),
@@ -496,13 +577,11 @@ export function useFirebaseSync(
         };
         updatedPhoneLink.notifications = [newNotif, ...currentNotifs].slice(0, 30);
       } else if (command === 'stop_ring') {
-        updatedPhoneLink.isRinging = false;
       } else if (command === 'toggle_focus_shield') {
-        updatedPhoneLink.focusShieldActive = Boolean(payload?.active);
         const newNotif: PhoneLinkNotification = {
           id: `focus_${Date.now()}`,
-          title: payload?.active ? '🛡️ تفعيل درع التركيز' : '🔓 فك قفل درع التركيز',
-          body: payload?.active ? 'تم تفعيل قفل التشتيت على الأجهزة المشتركة.' : 'تم فك حظر تطبيقات التشتيت.',
+          title: payload?.active ? '🛡️ طلب تفعيل درع التركيز' : '🔓 طلب إيقاف درع التركيز',
+          body: 'تم إرسال طلب تغيير الحالة؛ لا يؤكد هذا السجل تنفيذ الجهاز.',
           source: sender,
           type: 'focus',
           timestamp: new Date().toISOString(),
@@ -510,13 +589,10 @@ export function useFirebaseSync(
         };
         updatedPhoneLink.notifications = [newNotif, ...currentNotifs].slice(0, 30);
       } else if (command === 'send_clipboard') {
-        updatedPhoneLink.sharedClipboard = payload?.text || '';
-        updatedPhoneLink.clipboardSender = sender;
-        updatedPhoneLink.lastClipboardSync = new Date().toISOString();
         const newNotif: PhoneLinkNotification = {
           id: `clip_${Date.now()}`,
-          title: '📋 نص جديد في الحافظة المشتركة',
-          body: payload?.text ? `نص مستلم: "${String(payload.text).slice(0, 40)}..."` : 'تمت مشاركة نص جديد.',
+          title: '📋 طلب مشاركة نص للحافظة',
+          body: payload?.text ? `أُرسل طلب مشاركة نص: "${String(payload.text).slice(0, 40)}..."` : 'أُرسل طلب مشاركة نص.',
           source: sender,
           type: 'clipboard',
           timestamp: new Date().toISOString(),

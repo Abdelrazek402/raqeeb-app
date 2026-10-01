@@ -35,9 +35,122 @@ service cloud.firestore {
         && request.time < request.resource.data.expiresAt;
     }
 
+    function ownsPhoneLinkDevice(userId, deviceId) {
+      let devicePath = /databases/$(database)/documents/users/$(userId)/phonelinkDevices/$(deviceId);
+      return isOwner(userId)
+        && exists(devicePath)
+        && get(devicePath).data.ownerUid == userId
+        && get(devicePath).data.deviceId == deviceId;
+    }
+
+    function validDeviceData(userId, deviceId) {
+      let data = request.resource.data;
+      return isOwner(userId)
+        && data.keys().hasOnly([
+          'ownerUid', 'deviceId', 'deviceName', 'platform',
+          'createdAt', 'lastSeenAt', 'appVersion'
+        ])
+        && data.keys().hasAll([
+          'ownerUid', 'deviceId', 'deviceName', 'platform',
+          'createdAt', 'lastSeenAt', 'appVersion'
+        ])
+        && data.ownerUid == userId
+        && data.deviceId == deviceId
+        && isValidId(deviceId)
+        && data.deviceName is string
+        && data.deviceName.size() > 0
+        && data.deviceName.size() <= 80
+        && data.platform == 'android'
+        && data.createdAt is timestamp
+        && data.lastSeenAt is timestamp
+        && data.appVersion is string
+        && data.appVersion.size() <= 32;
+    }
+
+    function validCommandPayload(action, payload) {
+      return payload is map
+        && (
+          (action == 'ring'
+            && payload.keys().hasOnly(['durationSeconds'])
+            && payload.keys().hasAll(['durationSeconds'])
+            && payload.durationSeconds is int
+            && payload.durationSeconds >= 1
+            && payload.durationSeconds <= 60)
+          || (action == 'stop_ring' && payload.keys().size() == 0)
+          || (action == 'toggle_focus_shield'
+            && payload.keys().hasOnly(['active'])
+            && payload.keys().hasAll(['active'])
+            && payload.active is bool)
+          || (action == 'send_clipboard'
+            && payload.keys().hasOnly(['text'])
+            && payload.keys().hasAll(['text'])
+            && payload.text is string
+            && payload.text.size() <= 4096)
+        );
+    }
+
+    function validNewPhoneLinkCommand(userId, deviceId, commandId) {
+      let data = request.resource.data;
+      return isOwner(userId)
+        && data.keys().hasOnly([
+          'ownerUid', 'deviceId', 'commandId', 'action', 'payload',
+          'status', 'createdAt', 'expiresAt', 'createdByUid'
+        ])
+        && data.keys().hasAll([
+          'ownerUid', 'deviceId', 'commandId', 'action', 'payload',
+          'status', 'createdAt', 'expiresAt', 'createdByUid'
+        ])
+        && data.ownerUid == userId
+        && data.createdByUid == request.auth.uid
+        && data.deviceId == deviceId
+        && data.commandId == commandId
+        && isValidId(commandId)
+        && data.action in ['ring', 'stop_ring', 'toggle_focus_shield', 'send_clipboard']
+        && validCommandPayload(data.action, data.payload)
+        && data.status == 'pending'
+        && data.createdAt == request.time
+        && data.expiresAt is timestamp
+        && request.time < data.expiresAt
+        && data.expiresAt <= request.time + duration.value(5, 'm');
+    }
+
     // Default deny for unmatched collections
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    // Direct Auth + Firestore PhoneLink. The account owner is the trust boundary.
+    match /users/{userId}/phonelinkDevices/{deviceId} {
+      allow read: if isOwner(userId);
+      allow create: if validDeviceData(userId, deviceId)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.lastSeenAt == request.time;
+      allow update: if validDeviceData(userId, deviceId)
+        && resource.data.ownerUid == userId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.lastSeenAt == request.time;
+      // Deleting a record would not revoke the user's shared Firebase identity.
+      allow delete: if false;
+
+      match /commands/{commandId} {
+        allow read: if isOwner(userId);
+        allow create: if ownsPhoneLinkDevice(userId, deviceId)
+          && validNewPhoneLinkCommand(userId, deviceId, commandId);
+        allow update: if ownsPhoneLinkDevice(userId, deviceId)
+          && resource.data.ownerUid == userId
+          && resource.data.deviceId == deviceId
+          && resource.data.commandId == commandId
+          && resource.data.status == 'pending'
+          && resource.data.expiresAt is timestamp
+          && request.time < resource.data.expiresAt
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'ackAt', 'result'])
+          && request.resource.data.status in ['acknowledged', 'failed']
+          && request.resource.data.ackAt == request.time
+          && request.resource.data.result is string
+          && request.resource.data.result.size() <= 120;
+        allow delete: if false;
+      }
     }
 
     // Users Collection

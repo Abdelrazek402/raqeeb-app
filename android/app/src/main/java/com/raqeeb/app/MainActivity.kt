@@ -10,10 +10,20 @@ import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.raqeeb.app.databinding.ActivityMainBinding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,28 +39,74 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var phoneLink: PhoneLinkManager
+    private lateinit var firebaseAuth: FirebaseAuth
+    private lateinit var googleSignInClient: GoogleSignInClient
+    private lateinit var googleSignInLauncher: ActivityResultLauncher<Intent>
     private val timeFormatter = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Initialize PhoneLinkManager instance
-        phoneLink = PhoneLinkManager.getInstance(this)
-        val syncIntent = Intent(this, PhoneLinkSyncService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(syncIntent)
-        } else {
-            startService(syncIntent)
-        }
-
-        // 2. Initialize ViewBinding
+        // 1. Initialize the authenticated PhoneLink components.
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        phoneLink = PhoneLinkManager.getInstance(this)
+        firebaseAuth = FirebaseAuth.getInstance()
+        val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(getString(R.string.default_web_client_id))
+            .requestEmail()
+            .build()
+        googleSignInClient = GoogleSignIn.getClient(this, signInOptions)
+        googleSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK) {
+                Toast.makeText(this, "لم يكتمل تسجيل الدخول إلى PhoneLink", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            val accountTask = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            lifecycleScope.launch {
+                try {
+                    val account = withContext(Dispatchers.IO) { accountTask.await() }
+                    val token = account.idToken ?: error("Google Sign-In did not return an ID token.")
+                    val credential = GoogleAuthProvider.getCredential(token, null)
+                    val user = firebaseAuth.signInWithCredential(credential).await().user
+                        ?: error("Firebase Auth did not return a user.")
+                    withContext(Dispatchers.IO) {
+                        PhoneLinkFirestoreRepository.registerDevice(this@MainActivity, user.uid)
+                    }
+                    startPhoneLinkService()
+                    refreshPhoneLinkAuthUi()
+                    Toast.makeText(this@MainActivity, "تم تسجيل الدخول إلى PhoneLink", Toast.LENGTH_SHORT).show()
+                } catch (error: Exception) {
+                    android.util.Log.e("MainActivity", "PhoneLink Google sign-in failed.", error)
+                    refreshPhoneLinkAuthUi()
+                    Toast.makeText(this@MainActivity, "تعذر تسجيل الدخول أو تسجيل الجهاز في Firebase", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
 
         // 3. Setup user interactions & triggers
         setupUI()
+        binding.btnGoogleSignIn.setOnClickListener {
+            googleSignInLauncher.launch(googleSignInClient.signInIntent)
+        }
+        binding.btnGoogleSignOut.setOnClickListener {
+            lifecycleScope.launch {
+                try {
+                    stopService(Intent(this@MainActivity, PhoneLinkSyncService::class.java))
+                    firebaseAuth.signOut()
+                    refreshPhoneLinkAuthUi()
+                    googleSignInClient.signOut().await()
+                } catch (error: Exception) {
+                    android.util.Log.e("MainActivity", "PhoneLink sign-out failed.", error)
+                    refreshPhoneLinkAuthUi()
+                    Toast.makeText(this@MainActivity, "تعذر إكمال تسجيل الخروج من Google", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        refreshPhoneLinkAuthUi()
+        if (firebaseAuth.currentUser != null) startPhoneLinkService()
 
-        // 4. Connect to background reactive flows
+        // 3. Connect to background reactive flows
         observeServiceFlows()
     }
 
@@ -72,6 +128,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     Toast.makeText(this, "صلاحية الظهور فوق التطبيقات مفعلة بالفعل ✓", Toast.LENGTH_SHORT).show()
                 }
+
             } else {
                 Toast.makeText(this, "صلاحية الظهور مفعلة افتراضياً ✓", Toast.LENGTH_SHORT).show()
             }
@@ -85,6 +142,24 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnEnableUsageAccess.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+    }
+
+    private fun refreshPhoneLinkAuthUi() {
+        val user = firebaseAuth.currentUser
+        binding.tvPhoneLinkAuthStatus.text = user?.email?.let {
+            "PhoneLink مسجل الدخول: $it"
+        } ?: "PhoneLink: سجّل الدخول بحساب Google نفسه المستخدم على الويب"
+        binding.btnGoogleSignIn.visibility = if (user == null) android.view.View.VISIBLE else android.view.View.GONE
+        binding.btnGoogleSignOut.visibility = if (user == null) android.view.View.GONE else android.view.View.VISIBLE
+    }
+
+    private fun startPhoneLinkService() {
+        val serviceIntent = Intent(this, PhoneLinkSyncService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
         }
     }
 

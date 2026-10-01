@@ -32,15 +32,18 @@
 
 ## Flow C — Android ↔ PhoneLink
 
-**Current gate:** BLOCKED until owner-authenticated enrollment, revocable per-device credentials, durable command queue storage, Android credential storage, target authentication, and ACK persistence are integrated. Pairing code is an identifier, not a credential.
+**Current implementation:** Android signs in through Google Sign-In and Firebase Auth, then registers under `/users/{uid}/phonelinkDevices/{deviceId}`. The web client creates short-lived command documents in that device's `commands` subcollection. The Android foreground service listens for pending commands and attempts a single terminal ACK transition.
 
-1. Sign in as owner A and enroll unique Android and Windows device IDs with cryptographically random credentials.
-2. Confirm owner B, guessed IDs, missing credentials, expired/revoked credentials, and cross-device credentials are denied.
-3. Send a command with unique command ID and bounded expiry to the exact Android device.
-4. Verify queued → delivered → executing → completed/failed transitions, persisted ACK/error, and rejection of a duplicate/replayed command ID.
-5. Verify owner A can revoke, rename, and re-enroll the device; old credentials stop working.
+1. Install the debug/release APK on a physical Android device and sign in with the same Google account used by the web app.
+2. Verify the Android device document appears under the signed-in UID and that an account B cannot read it or its commands.
+3. From the web client for account A, send ring, stop-ring, focus, and clipboard commands; verify each command is created with a unique ID, pending status, and expiry no more than five minutes away.
+4. Verify Android handles each supported command and writes a terminal `acknowledged` or `failed` status before expiry. Confirm a second ACK update is rejected.
+5. Wait for expiry and verify the service ignores the command; verify malformed command fields, cross-account access, and owner changes are denied by emulator tests.
+6. Sign out and confirm the foreground service stops; sign back in and verify the same installation device ID is reused.
 
-**Evidence to retain:** redacted request IDs and lifecycle timestamps only. Do not log raw device tokens.
+**Security boundary:** Firestore ownership is by Firebase UID, not by an independently authenticated device. Deleting/revoking a device credential is not supported because no per-device credential exists. A modified client signed into the owner's account can create commands and forge ACKs; ACK is a client report that local handling was accepted, not independently verified execution. No server-side enforcement or Cloud Functions are used.
+
+**Evidence to retain:** redacted device/command IDs and lifecycle timestamps only. Do not log OAuth tokens or Firebase credentials.
 
 ## Flow D — dashboard and real usage
 

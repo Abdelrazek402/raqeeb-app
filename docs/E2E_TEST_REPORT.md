@@ -13,11 +13,11 @@
 | Windows Authenticode signature | UNVERIFIED | No code-signing certificate/signing step is configured or applied by the current release workflow. The local publish is unsigned. |
 | Android download returns the published release APK | UNVERIFIED | Local HTTP request returned a 302 to the named asset, and GitHub reports that asset on the latest release; no binary download or hash comparison was performed. |
 | Android install, AccessibilityService, blocker, and UsageStats behavior | UNVERIFIED | No Android device or emulator run was performed. |
-| Android PhoneLink authentication, command acknowledgements, expiry, and replay handling | UNVERIFIED | No paired-device E2E run was performed. |
+| Android PhoneLink authentication, command execution, and ACK runtime | UNVERIFIED | Android Google Sign-In, device registration, Firestore command listening, and client ACK code are implemented, but no Android device was available for an end-to-end run. Emulator rule tests do not verify the native runtime. |
 | Windows startup, WebView2 dashboard, process monitoring, hosts changes, restore, and DNS flush | UNVERIFIED | No Windows target runtime or elevated-hosts test was performed. |
 | Browser extension install and blocking behavior | UNVERIFIED | Edge is available, but the extension was not installed and no DNR runtime test was performed. |
-| Firestore owner isolation across accounts | PARTIAL | Firestore Emulator tests pass 5/5 covering owner/non-owner read, write, and delete; unauthenticated reads; expiry; and revocation. Production rules deployment and real account/device E2E were not tested. |
+| Firestore owner isolation, command expiry, schema, and duplicate ACK | PARTIAL | Firestore Emulator tests pass 13/13 covering owner/non-owner device/command access, registered-device enforcement, malformed data, bounded expiry, expired ACK rejection, and duplicate ACK rejection. Rules were deployed to `raqeeb-production`; real account/device E2E remains untested. |
 | Push notification delivery and acknowledgement semantics | UNVERIFIED | No browser/device subscription delivery test was performed. |
-| Legacy PhoneLink REST paths | PARTIAL | Local HTTP requests to state, commands, and sync paths returned structured HTTP 503; no authenticated native replacement flow is implemented or tested. |
+| Legacy PhoneLink REST paths | PARTIAL | Local HTTP requests to state, commands, and sync paths returned structured HTTP 503. Android PhoneLink now uses Firebase Auth and Firestore directly; device-level runtime has not been tested. |
 
 No UI-only state, generated file, or workflow definition is counted as runtime proof. CI checks must pass in the release workflow, and the device/browser scenarios above still require execution on their target platforms.

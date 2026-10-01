@@ -23,12 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 /**
  * PhoneLinkManager
@@ -42,10 +37,6 @@ import java.util.concurrent.TimeUnit
 class PhoneLinkManager private constructor(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
 
     private var currentRingtone: Ringtone? = null
 
@@ -68,21 +59,25 @@ class PhoneLinkManager private constructor(private val context: Context) {
     /**
      * Executes an incoming Phone Link command.
      */
-    fun handleCommand(action: String, payload: JSONObject?) {
+    fun handleCommand(action: String, payload: JSONObject?): Boolean {
         Log.i(TAG, "Handling Phone Link command: $action")
         when (action) {
-            "ring" -> executeRing(payload?.optInt("durationSeconds", 15) ?: 15)
+            "ring" -> executeRing((payload?.optInt("durationSeconds", 15) ?: 15).coerceIn(1, 60))
             "stop_ring" -> stopRing()
-            "toggle_focus" -> {
+            "toggle_focus", "toggle_focus_shield" -> {
                 val enable = payload?.optBoolean("active", !_isFocusActive.value) ?: !_isFocusActive.value
                 executeToggleFocus(enable)
             }
-            "clipboard_sync" -> {
-                val text = payload?.optString("text", "") ?: ""
+            "clipboard_sync", "send_clipboard" -> {
+                val text = (payload?.optString("text", "") ?: "").take(4096)
                 executeClipboardSync(text)
             }
-            else -> Log.w(TAG, "Unknown Phone Link action: $action")
+            else -> {
+                Log.w(TAG, "Unknown Phone Link action: $action")
+                return false
+            }
         }
+        return true
     }
 
     /**
@@ -185,48 +180,13 @@ class PhoneLinkManager private constructor(private val context: Context) {
 
         val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val batteryPct: Int = if (level >= 0 && scale > 0) (level * 100 / scale) else 100
+        val batteryPct: Int = if (level >= 0 && scale > 0) (level * 100 / scale) else -1
 
         val status: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
         val isCharging: Boolean = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                 status == BatteryManager.BATTERY_STATUS_FULL
 
         return Pair(batteryPct, isCharging)
-    }
-
-    /**
-     * Syncs device status back to Raqeeb backend.
-     */
-    fun syncTelemetryToServer(serverBaseUrl: String, pairingCode: String) {
-        scope.launch {
-            try {
-                val (battery, charging) = getBatteryInfo()
-                val payload = JSONObject().apply {
-                    put("pairingCode", pairingCode)
-                    put("deviceType", "android")
-                    put("model", "${Build.MANUFACTURER} ${Build.MODEL}")
-                    put("batteryLevel", battery)
-                    put("isCharging", charging)
-                    put("isFocusActive", _isFocusActive.value)
-                    put("timestamp", System.currentTimeMillis())
-                }
-
-                val request = Request.Builder()
-                    .url("$serverBaseUrl/api/phonelink/sync")
-                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        Log.i(TAG, "Telemetry synced successfully: $battery% charging=$charging")
-                    } else {
-                        Log.w(TAG, "Telemetry sync failed with code: ${response.code}")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error syncing telemetry to server", e)
-            }
-        }
     }
 
     private fun vibrateDevice(durationMillis: Long) {

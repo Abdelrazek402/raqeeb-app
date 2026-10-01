@@ -8,76 +8,84 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 
 class PhoneLinkSyncService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
-    private var pollingJob: Job? = null
+    private val inFlightUntil = ConcurrentHashMap<String, Long>()
+    private var commandListener: ListenerRegistration? = null
+    private var registeredDeviceId: String? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification())
-        pollingJob = scope.launch { pollCommands() }
-    }
 
-    private suspend fun pollCommands() {
-        while (currentCoroutineContext().isActive) {
-            val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-            val baseUrl = prefs.getString(KEY_SERVER_URL, null)?.trim().orEmpty()
-            val deviceToken = prefs.getString(KEY_DEVICE_TOKEN, null)?.trim().orEmpty()
-            val deviceId = prefs.getString(KEY_DEVICE_ID, android.os.Build.SERIAL)?.trim().orEmpty()
-            if (baseUrl.isNotEmpty() && deviceToken.isNotEmpty() && deviceId.isNotEmpty()) {
-                try {
-                    val request = Request.Builder()
-                        .url("${baseUrl.trimEnd('/')}/api/phonelink/commands?deviceId=${java.net.URLEncoder.encode(deviceId, "UTF-8")}")
-                        .header("X-Device-Token", deviceToken)
-                        .get()
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            val body = response.body?.string().orEmpty()
-                            body.takeIf(String::isNotBlank)?.let(::handleResponse)
-                        } else {
-                            Log.w(TAG, "Command polling failed: HTTP ${response.code}")
-                        }
-                    }
-                } catch (error: Exception) {
-                    Log.w(TAG, "Command polling unavailable", error)
-                }
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            Log.w(TAG, "PhoneLink listener not started: no signed-in Firebase user.")
+            stopSelf()
+            return
+        }
+        scope.launch {
+            try {
+                val deviceId = PhoneLinkFirestoreRepository.registerDevice(this@PhoneLinkSyncService, uid)
+                registeredDeviceId = deviceId
+                commandListener = PhoneLinkFirestoreRepository.listenForPendingCommands(
+                    uid,
+                    deviceId,
+                    ::handleCommandDocument
+                ) { error -> Log.e(TAG, "Firestore PhoneLink listener failed.", error) }
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not register PhoneLink device or attach its listener.", error)
+                stopSelf()
             }
-            delay(POLL_INTERVAL_MS)
         }
     }
 
-    private fun handleResponse(body: String) {
-        val envelope = JSONObject(body)
-        val commands = envelope.optJSONArray("commands") ?: return
-        val manager = PhoneLinkManager.getInstance(this)
-        for (index in 0 until commands.length()) {
-            val command = commands.optJSONObject(index) ?: continue
-            val action = when (command.optString("action")) {
-                "toggle_focus_shield" -> "toggle_focus"
-                "send_clipboard" -> "clipboard_sync"
-                else -> command.optString("action")
+    private fun handleCommandDocument(commandId: String, data: Map<String, Any>) {
+        val now = System.currentTimeMillis()
+        inFlightUntil.entries.removeIf { it.value <= now }
+        if (inFlightUntil.putIfAbsent(commandId, now + MAX_COMMAND_LIFETIME_MS) != null) return
+
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val deviceId = data["deviceId"] as? String ?: return
+        if (data["ownerUid"] != uid || deviceId != registeredDeviceId || data["commandId"] != commandId) {
+            Log.w(TAG, "Ignoring malformed or mismatched PhoneLink command $commandId.")
+            return
+        }
+        val expiry = data["expiresAt"] as? Timestamp
+        if (expiry == null || expiry.toDate().time <= now) {
+            Log.i(TAG, "Ignoring expired PhoneLink command $commandId.")
+            return
+        }
+        val action = data["action"] as? String ?: return
+        val payload = data["payload"] as? Map<*, *> ?: return
+        val jsonPayload = JSONObject(payload)
+
+        scope.launch {
+            val accepted = PhoneLinkManager.getInstance(this@PhoneLinkSyncService)
+                .handleCommand(action, jsonPayload)
+            try {
+                PhoneLinkFirestoreRepository.acknowledge(
+                    uid,
+                    deviceId,
+                    commandId,
+                    accepted,
+                    if (accepted) "accepted for local handling" else "unsupported command"
+                )
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not acknowledge PhoneLink command $commandId.", error)
             }
-            manager.handleCommand(action, command.optJSONObject("payload"))
         }
     }
 
@@ -111,7 +119,7 @@ class PhoneLinkSyncService : Service() {
         }
 
     override fun onDestroy() {
-        pollingJob?.cancel()
+        commandListener?.remove()
         scope.cancel()
         super.onDestroy()
     }
@@ -122,10 +130,6 @@ class PhoneLinkSyncService : Service() {
         private const val TAG = "PhoneLinkSyncService"
         private const val CHANNEL_ID = "raqeeb_phonelink_sync"
         private const val NOTIFICATION_ID = 4101
-        private const val POLL_INTERVAL_MS = 15_000L
-        const val PREFS = "raqeeb_phonelink"
-        const val KEY_SERVER_URL = "server_url"
-        const val KEY_DEVICE_TOKEN = "device_token"
-        const val KEY_DEVICE_ID = "device_id"
+        private const val MAX_COMMAND_LIFETIME_MS = 5 * 60 * 1000L
     }
 }

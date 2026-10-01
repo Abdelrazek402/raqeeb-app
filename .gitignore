@@ -1,12 +1,26 @@
 node_modules
 node_modules/
 node_modules/**
-# Android source is tracked; keep secrets and generated artifacts out of Git.
-android/app/google-services.json
+# Keep Android source tracked; exclude only local configuration and build output.
+/android/**/google-services.json
+/android/.gradle/
+/android/.idea/
+/android/.externalNativeBuild/
+/android/.cxx/
+/android/local.properties
+/android/captures/
+/android/**/build/
+/android/**/*.jks
+/android/**/*.keystore
+/android/**/*.p12
+/android/**/*.pfx
+/android/**/*.pem
+/android/**/*.key
+/android/**/*.apk
+/android/**/*.aab
 *.jks
 *.keystore
 .gradle/
-local.properties
 *.apk
 *.aab
 windows
