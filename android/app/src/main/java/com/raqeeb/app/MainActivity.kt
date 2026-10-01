@@ -3,11 +3,14 @@ package com.raqeeb.app
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
+import android.widget.CheckBox
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.ActivityResultLauncher
@@ -42,6 +45,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var firebaseAuth: FirebaseAuth
     private lateinit var googleSignInClient: GoogleSignInClient
     private lateinit var googleSignInLauncher: ActivityResultLauncher<Intent>
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) {
+                Toast.makeText(this, "لن تظهر إشعارات محاولات الحجب دون إذن الإشعارات", Toast.LENGTH_LONG).show()
+            }
+        }
     private val timeFormatter = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,6 +61,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         phoneLink = PhoneLinkManager.getInstance(this)
         firebaseAuth = FirebaseAuth.getInstance()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
@@ -113,35 +127,101 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStates()
+        updateBlockedAppsSummary()
     }
 
     private fun setupUI() {
-        // Trigger Overlay Permission (SYSTEM_ALERT_WINDOW)
+        binding.btnSelectBlockedApps.setOnClickListener { showBlockedAppPicker() }
         binding.btnEnableOverlay.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (!Settings.canDrawOverlays(this)) {
-                    val intent = Intent(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                startActivity(
+                    Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:$packageName")
                     )
-                    startActivity(intent)
-                } else {
-                    Toast.makeText(this, "صلاحية الظهور فوق التطبيقات مفعلة بالفعل ✓", Toast.LENGTH_SHORT).show()
-                }
-
+                )
             } else {
-                Toast.makeText(this, "صلاحية الظهور مفعلة افتراضياً ✓", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "صلاحية الظهور فوق التطبيقات مفعلة بالفعل ✓", Toast.LENGTH_SHORT).show()
             }
         }
-
-        // Trigger Accessibility Service Setup Settings
         binding.btnEnableAccessibility.setOnClickListener {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-
         binding.btnEnableUsageAccess.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+    }
+
+    private fun showBlockedAppPicker() {
+        val launchIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val installedApps = packageManager.queryIntentActivities(launchIntent, 0)
+            .map { it.activityInfo }
+            .filter { it.packageName != packageName }
+            .distinctBy { it.packageName }
+            .sortedBy { it.loadLabel(packageManager).toString().lowercase(Locale.getDefault()) }
+        if (installedApps.isEmpty()) {
+            Toast.makeText(this, "لم يعثر النظام على تطبيقات قابلة للاختيار", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val selected = RaqeebAccessibilityService.getMonitoredApps(this).toMutableSet()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 8, 24, 8)
+        }
+        installedApps.forEach { app ->
+            val icon = app.loadIcon(packageManager)
+            val iconSize = (24 * resources.displayMetrics.density).toInt()
+            icon.setBounds(0, 0, iconSize, iconSize)
+            val checkbox = CheckBox(this).apply {
+                text = app.loadLabel(packageManager)
+                isChecked = selected.contains(app.packageName)
+                setCompoundDrawables(null, null, icon, null)
+                compoundDrawablePadding = (8 * resources.displayMetrics.density).toInt()
+            }
+            checkbox.setOnCheckedChangeListener { _, checked ->
+                if (checked) selected.add(app.packageName) else selected.remove(app.packageName)
+            }
+            container.addView(
+                checkbox,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (48 * resources.displayMetrics.density).toInt()
+                )
+            )
+        }
+        val scrollView = android.widget.ScrollView(this).apply { addView(container) }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("اختر التطبيقات المحجوبة")
+            .setView(scrollView)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("حفظ") { _, _ ->
+                try {
+                    RaqeebAccessibilityService.updateMonitoredApps(this, selected)
+                    updateBlockedAppsSummary()
+                    Toast.makeText(this, "تم حفظ ${selected.size} تطبيقات محليًا", Toast.LENGTH_SHORT).show()
+                } catch (error: Exception) {
+                    android.util.Log.e("MainActivity", "Could not save blocked-app selection.", error)
+                    Toast.makeText(this, "تعذر حفظ قائمة التطبيقات المحجوبة", Toast.LENGTH_LONG).show()
+                }
+            }
+            .show()
+    }
+
+    private fun updateBlockedAppsSummary() {
+        val blockedPackages = RaqeebAccessibilityService.getMonitoredApps(this)
+        val labels = blockedPackages.map { blockedPackage ->
+            try {
+                packageManager.getApplicationInfo(blockedPackage, 0).loadLabel(packageManager).toString()
+            } catch (_: PackageManager.NameNotFoundException) {
+                blockedPackage
+            }
+        }
+        binding.tvBlockedAppsSummary.text = if (labels.isEmpty()) {
+            "لا توجد تطبيقات محددة للحجب"
+        } else {
+            "المحجوب (${labels.size}): ${labels.take(4).joinToString("، ")}" +
+                if (labels.size > 4) "، ..." else ""
         }
     }
 
@@ -167,20 +247,19 @@ class MainActivity : AppCompatActivity() {
      * Updates UI indicators based on current granted permissions & service status.
      */
     private fun updatePermissionStates() {
-        val isOverlayGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(this)
-        } else {
-            true
-        }
+        val isAccessibilityActive =
+            isAccessibilityServiceEnabled(this, RaqeebAccessibilityService::class.java) &&
+                RaqeebAccessibilityService.serviceConnected.value
 
-        val isAccessibilityActive = isAccessibilityServiceEnabled(this, RaqeebAccessibilityService::class.java)
-
-        if (isAccessibilityActive && isOverlayGranted) {
-            binding.indicatorStatus.setBackgroundColor(android.graphics.Color.parseColor("#10b981")) // Green (Active & Protected)
-            binding.tvLastBlockedTime.text = "الحالة: الدرع نشط ومحمي بفضل الله ✓"
-        } else {
-            binding.indicatorStatus.setBackgroundColor(android.graphics.Color.parseColor("#f59e0b")) // Yellow (Needs Activation)
-            binding.tvLastBlockedTime.text = "الحالة: يرجى تفعيل الصلاحيات لبدء الحماية"
+        val blockedAppsCount = RaqeebAccessibilityService.getMonitoredApps(this).size
+        val protectionReady = isAccessibilityActive && blockedAppsCount > 0
+        binding.indicatorStatus.setBackgroundColor(
+            android.graphics.Color.parseColor(if (protectionReady) "#10b981" else "#f59e0b")
+        )
+        binding.tvProtectionStatus.text = when {
+            !isAccessibilityActive -> "الحماية غير نشطة: فعّل خدمة إمكانية الوصول"
+            blockedAppsCount == 0 -> "الخدمة تعمل، لكن لم تُحدد تطبيقات للحجب"
+            else -> "خدمة إمكانية الوصول متصلة • $blockedAppsCount تطبيقات محددة للحجب"
         }
 
         updateUsageSummary()
@@ -217,6 +296,7 @@ class MainActivity : AppCompatActivity() {
         // 1. Reactively track blocked application events
         lifecycleScope.launch {
             RaqeebAccessibilityService.blockedEventsFlow.collectLatest { event ->
+                if (event == null) return@collectLatest
                 val formattedTime = timeFormatter.format(Date(event.timestamp))
 
                 binding.tvLastBlockedPackage.text = event.packageName
@@ -225,7 +305,7 @@ class MainActivity : AppCompatActivity() {
 
                 Toast.makeText(
                     this@MainActivity,
-                    "🛡️ درع رَقِيب: تم رصد وحجب (${event.packageName})",
+                    "🛡️ رقيب: تم رصد محاولة فتح ${event.packageName} (محدد للحجب)",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -233,8 +313,9 @@ class MainActivity : AppCompatActivity() {
 
         // 2. Reactively track active monitored applications list
         lifecycleScope.launch {
-            RaqeebAccessibilityService.monitoredAppsFlow.collectLatest { appsSet ->
-                android.util.Log.i("MainActivity", "Live monitored packages count: ${appsSet.size}")
+            RaqeebAccessibilityService.monitoredAppsFlow.collectLatest {
+                updateBlockedAppsSummary()
+                updatePermissionStates()
             }
         }
 
@@ -246,6 +327,12 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        lifecycleScope.launch {
+            RaqeebAccessibilityService.serviceConnected.collectLatest {
+                updatePermissionStates()
+            }
+        }
     }
 
     /**
@@ -254,11 +341,9 @@ class MainActivity : AppCompatActivity() {
     private fun isAccessibilityServiceEnabled(context: Context, service: Class<*>): Boolean {
         val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager ?: return false
         val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_GENERIC)
-        for (info in enabledServices) {
-            if (info.resolveInfo.serviceInfo.name.contains(service.simpleName)) {
-                return true
-            }
+        return enabledServices.any { info ->
+            val serviceInfo = info.resolveInfo.serviceInfo
+            serviceInfo.packageName == context.packageName && serviceInfo.name == service.name
         }
-        return false
     }
 }

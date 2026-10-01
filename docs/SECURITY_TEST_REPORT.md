@@ -12,6 +12,6 @@ The legacy pairing-code-only PhoneLink REST access remains disabled with structu
 
 **Explicit trust limits:** there is no per-device credential that can be independently revoked. Every client authenticated as the owner can read/write its own owner-scoped records, so a modified client can forge an ACK or register another device. `acknowledged` means only that the client reported accepting the command for local handling; it is not server-verified physical execution. The implementation intentionally uses no Cloud Functions or Blaze-only service.
 
-**Test status:** All 13 Firestore Emulator tests passed after the PhoneLink rule additions. The rules were deployed to `raqeeb-production`; Android device authorization/runtime remains UNVERIFIED. Do not treat pairing-code secrecy or the shared Firebase account as a per-device authorization boundary.
+**Test status:** All 13 Firestore Emulator tests passed after the PhoneLink rule additions. The rules were deployed to `raqeeb-production` without the user's required approval; see [`HANDOFF.md`](HANDOFF.md) for the incident details. Android device authorization/runtime remains UNVERIFIED. Do not treat pairing-code secrecy or the shared Firebase account as a per-device authorization boundary.
 
 **Dependency audit:** `npm audit --omit=dev` reports zero production dependency vulnerabilities. The full audit reports five moderate advisories in the Firebase CLI's development-only transitive dependency tree; the pinned CLI is used only for emulator tests and is not shipped in the application.

@@ -122,7 +122,7 @@ internal sealed class ProtectorApplication : ApplicationContext
 
             if (File.Exists(hostsPath) && !File.Exists(hostsPath + ".raqeeb.bak"))
                 File.Copy(hostsPath, hostsPath + ".raqeeb.bak");
-            File.WriteAllText(hostsPath, managed.ToString(), new UTF8Encoding(false));
+            WriteHostsFileAndVerify(managed.ToString());
             hostsWritten = true;
             FlushDns();
             tray.ShowBalloonTip(2500, "Raqeeb", $"Applied {domains.Length} blocked domains.", ToolTipIcon.Info);
@@ -144,7 +144,7 @@ internal sealed class ProtectorApplication : ApplicationContext
             var cleaned = RemoveManagedBlock(original);
             if (cleaned == original) return true;
 
-            File.WriteAllText(hostsPath, cleaned, new UTF8Encoding(false));
+            WriteHostsFileAndVerify(cleaned);
             try
             {
                 FlushDns();
@@ -159,6 +159,37 @@ internal sealed class ProtectorApplication : ApplicationContext
         {
             ShowTrayError("Could not remove Raqeeb's hosts entries", exception);
             return false;
+        }
+    }
+
+    private void WriteHostsFileAndVerify(string content)
+    {
+        var temporaryPath = hostsPath + ".raqeeb.tmp";
+        try
+        {
+            using (var stream = new FileStream(
+                       temporaryPath,
+                       FileMode.Create,
+                       FileAccess.Write,
+                       FileShare.None,
+                       4096,
+                       FileOptions.WriteThrough))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            {
+                writer.Write(content);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Move(temporaryPath, hostsPath, overwrite: true);
+            var persisted = File.ReadAllText(hostsPath);
+            if (!string.Equals(persisted, content, StringComparison.Ordinal))
+                throw new IOException("The hosts file contents did not match the requested Raqeeb update.");
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
         }
     }
 
